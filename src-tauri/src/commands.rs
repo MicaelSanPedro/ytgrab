@@ -242,36 +242,67 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
         .map_err(|e| format!("Falha ao iniciar yt-dlp: {}", e))?;
 
     let stdout = child.stdout.take().ok_or("Sem saída padrão")?;
+    let stderr_handle = child.stderr.take().ok_or("Sem saída de erro")?;
+
     use tokio::io::{AsyncBufReadExt, BufReader};
+
+    // Ler stderr em background para capturar mensagens de erro
+    let stderr_reader = BufReader::new(stderr_handle);
+    let mut stderr_lines = stderr_reader.lines();
+    let mut stderr_output = String::new();
+
     let reader = BufReader::new(stdout);
     let mut lines = reader.lines();
 
-    while let Ok(Some(line)) = lines.next_line().await {
-        let line_str = line;
+    loop {
+        tokio::select! {
+            line = lines.next_line() => {
+                match line {
+                    Ok(Some(line_str)) => {
+                        if line_str.starts_with("[download]") && line_str.contains('%') {
+                            let percent = parse_percent(&line_str);
+                            let speed = parse_speed(&line_str);
+                            let eta = parse_eta(&line_str);
 
-        if line_str.starts_with("[download]") && line_str.contains('%') {
-            let percent = parse_percent(&line_str);
-            let speed = parse_speed(&line_str);
-            let eta = parse_eta(&line_str);
-
-            let _ = app_clone.emit("download-progress", DownloadProgress {
-                id: id_clone.clone(),
-                percent,
-                speed,
-                eta,
-                status: "downloading".into(),
-                error: None,
-            });
-        } else if line_str.contains("Merging") || line_str.contains("Deleting") || line_str.contains("Converting") {
-            let _ = app_clone.emit("download-progress", DownloadProgress {
-                id: id_clone.clone(),
-                percent: 100.0,
-                speed: String::new(),
-                eta: String::new(),
-                status: "processing".into(),
-                error: None,
-            });
+                            let _ = app_clone.emit("download-progress", DownloadProgress {
+                                id: id_clone.clone(),
+                                percent,
+                                speed,
+                                eta,
+                                status: "downloading".into(),
+                                error: None,
+                            });
+                        } else if line_str.contains("Merging") || line_str.contains("Deleting") || line_str.contains("Converting") || line_str.contains("Extracting") {
+                            let _ = app_clone.emit("download-progress", DownloadProgress {
+                                id: id_clone.clone(),
+                                percent: 100.0,
+                                speed: String::new(),
+                                eta: String::new(),
+                                status: "processing".into(),
+                                error: None,
+                            });
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(_) => break,
+                }
+            }
+            err_line = stderr_lines.next_line() => {
+                match err_line {
+                    Ok(Some(l)) => {
+                        stderr_output.push_str(&l);
+                        stderr_output.push('\n');
+                    }
+                    _ => {}
+                }
+            }
         }
+    }
+
+    // Drain remaining stderr
+    while let Ok(Some(l)) = stderr_lines.next_line().await {
+        stderr_output.push_str(&l);
+        stderr_output.push('\n');
     }
 
     let status = child.wait().await.map_err(|e| e.to_string())?;
@@ -287,15 +318,20 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
         });
         Ok(id)
     } else {
+        let err_msg = if stderr_output.is_empty() {
+            "Download falhou".to_string()
+        } else {
+            format!("Erro: {}", stderr_output.trim().lines().take(5).collect::<Vec<_>>().join("\n"))
+        };
         let _ = app.emit("download-progress", DownloadProgress {
             id: id_clone,
             percent: 0.0,
             speed: String::new(),
             eta: String::new(),
             status: "error".into(),
-            error: Some("Download falhou".into()),
+            error: Some(err_msg.clone()),
         });
-        Err("Download falhou".into())
+        Err(err_msg)
     }
 }
 
