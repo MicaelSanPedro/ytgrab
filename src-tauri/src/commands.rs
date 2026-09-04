@@ -49,17 +49,16 @@ pub struct DownloadProgress {
 
 /// Find yt-dlp binary
 fn find_ytdlp() -> Result<PathBuf, String> {
-    // Try common locations
-    let candidates = if cfg!(target_os = "windows") {
+    let candidates: Vec<Option<PathBuf>> = if cfg!(target_os = "windows") {
         vec![
-            PathBuf::from("yt-dlp.exe"),
-            PathBuf::from("yt-dlp/yt-dlp.exe"),
+            Some(PathBuf::from("yt-dlp.exe")),
+            Some(PathBuf::from("yt-dlp/yt-dlp.exe")),
             dirs_path("APPDATA").map(|p| p.join("ytgrab/yt-dlp.exe")),
         ]
     } else {
         vec![
-            PathBuf::from("/usr/local/bin/yt-dlp"),
-            PathBuf::from("/usr/bin/yt-dlp"),
+            Some(PathBuf::from("/usr/local/bin/yt-dlp")),
+            Some(PathBuf::from("/usr/bin/yt-dlp")),
             dirs_path("HOME").map(|p| p.join(".local/bin/yt-dlp")),
             dirs_path("HOME").map(|p| p.join(".ytgrab/yt-dlp")),
         ]
@@ -118,10 +117,11 @@ fn find_ffmpeg() -> Result<PathBuf, String> {
 pub fn check_dependencies() -> Result<serde_json::Value, String> {
     let ytdlp = find_ytdlp().ok();
     let ffmpeg = find_ffmpeg().ok();
+    let ready = ytdlp.is_some() && ffmpeg.is_some();
     Ok(serde_json::json!({
-        "ytdlp": ytdlp.map(|p| p.to_string_lossy().to_string()),
-        "ffmpeg": ffmpeg.map(|p| p.to_string_lossy().to_string()),
-        "ready": ytdlp.is_some() && ffmpeg.is_some()
+        "ytdlp": ytdlp.as_ref().map(|p| p.to_string_lossy().to_string()),
+        "ffmpeg": ffmpeg.as_ref().map(|p| p.to_string_lossy().to_string()),
+        "ready": ready
     }))
 }
 
@@ -129,7 +129,7 @@ pub fn check_dependencies() -> Result<serde_json::Value, String> {
 pub async fn get_video_info(url: String) -> Result<VideoInfo, String> {
     let ytdlp = find_ytdlp()?;
 
-    let output = tokio::process::Command::new(ytdlp)
+    let output = tokio::process::Command::new(&ytdlp)
         .arg("--dump-json")
         .arg("--no-download")
         .arg("--flat-playlist")
@@ -221,7 +221,7 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
             };
             args.push("-f".to_string());
             args.push(format!(
-                "bestvideo[height<={}][ext=mp4]+bestaudio[ext=m4a]/best[height<={}]",
+                "bestvideo[height<={}]+bestaudio/best[height<={}]",
                 height, height
             ));
             args.push("--merge-output-format".to_string());
@@ -240,7 +240,7 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
     let app_clone = app.clone();
 
     // Spawn the process and stream progress
-    let mut child = tokio::process::Command::new(ytdlp)
+    let mut child = tokio::process::Command::new(&ytdlp)
         .args(&args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -255,7 +255,7 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
     while let Ok(Some(line)) = lines.next_line().await {
         let line_str = line;
 
-        // Parse yt-dlp progress lines: [download]  45.2% of 120.5MiB at 2.3MiB/s ETA 00:30
+        // Parse yt-dlp progress lines
         if line_str.starts_with("[download]") && line_str.contains('%') {
             let percent = parse_percent(&line_str);
             let speed = parse_speed(&line_str);
@@ -332,7 +332,6 @@ pub fn open_in_file_manager(path: String) -> Result<(), String> {
 // ─── Parsing helpers ─────────────────────────────────────
 
 fn parse_percent(line: &str) -> f64 {
-    // [download]  45.2% of ...
     let re = regex_lite::Regex::new(r"(\d+\.?\d*)%").unwrap();
     if let Some(caps) = re.captures(line) {
         return caps[1].parse().unwrap_or(0.0);
@@ -341,7 +340,6 @@ fn parse_percent(line: &str) -> f64 {
 }
 
 fn parse_speed(line: &str) -> String {
-    // at 2.3MiB/s
     let re = regex_lite::Regex::new(r"at\s+([\d.]+\w+/s)").unwrap();
     if let Some(caps) = re.captures(line) {
         return caps[1].to_string();
@@ -350,7 +348,6 @@ fn parse_speed(line: &str) -> String {
 }
 
 fn parse_eta(line: &str) -> String {
-    // ETA 00:30
     let re = regex_lite::Regex::new(r"ETA\s+([\d:]+)").unwrap();
     if let Some(caps) = re.captures(line) {
         return caps[1].to_string();
