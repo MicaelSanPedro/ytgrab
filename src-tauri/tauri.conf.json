@@ -41,17 +41,15 @@
     "resources": [],
     "linux": {
       "deb": {
-        "depends": ["ffmpeg"]
+        "depends": [
+          "ffmpeg"
+        ]
       }
     }
   },
   "plugins": {
     "shell": {
       "open": true
-    },
-    "dialog": {
-      "open": true,
-      "save": true
     }
   }
 }
