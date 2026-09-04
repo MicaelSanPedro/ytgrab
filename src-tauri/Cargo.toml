@@ -1,6 +1,6 @@
 [package]
 name = "ytgrab"
-version = "1.0.2"
+version = "1.0.3"
 description = "YouTube Downloader — MP3, MP4, any quality"
 authors = ["Micael San Pedro"]
 edition = "2021"
