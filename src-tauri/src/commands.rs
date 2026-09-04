@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
 
-// ─── Types ───────────────────────────────────────────────
+// ─── Tipos ───────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VideoInfo {
@@ -29,8 +29,8 @@ pub struct FormatInfo {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DownloadOptions {
     pub url: String,
-    pub format: String,       // "mp3" or "mp4"
-    pub quality: String,      // e.g. "320", "256", "128", "best", "1080", "720", "480"
+    pub format: String,
+    pub quality: String,
     pub output_dir: String,
     pub filename: String,
 }
@@ -41,19 +41,18 @@ pub struct DownloadProgress {
     pub percent: f64,
     pub speed: String,
     pub eta: String,
-    pub status: String, // "downloading", "processing", "done", "error"
+    pub status: String,
     pub error: Option<String>,
 }
 
 // ─── Helpers ─────────────────────────────────────────────
 
-/// Find yt-dlp binary
 fn find_ytdlp() -> Result<PathBuf, String> {
     let candidates: Vec<Option<PathBuf>> = if cfg!(target_os = "windows") {
         vec![
             Some(PathBuf::from("yt-dlp.exe")),
-            Some(PathBuf::from("yt-dlp/yt-dlp.exe")),
             dirs_path("APPDATA").map(|p| p.join("ytgrab/yt-dlp.exe")),
+            dirs_path("LOCALAPPDATA").map(|p| p.join("ytgrab/yt-dlp.exe")),
         ]
     } else {
         vec![
@@ -70,12 +69,11 @@ fn find_ytdlp() -> Result<PathBuf, String> {
         }
     }
 
-    // Try PATH
     if let Ok(output) = which_ytdlp() {
         return Ok(output);
     }
 
-    Err("yt-dlp not found. Please install it first.".into())
+    Err("yt-dlp não encontrado. Instale usando o botão abaixo ou manualmente.".into())
 }
 
 fn dirs_path(var: &str) -> Option<PathBuf> {
@@ -87,7 +85,7 @@ fn which_ytdlp() -> Result<PathBuf, String> {
     let output = std::process::Command::new(cmd)
         .arg("yt-dlp")
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Erro ao buscar yt-dlp: {}", e))?;
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         let p = PathBuf::from(&path);
@@ -95,7 +93,7 @@ fn which_ytdlp() -> Result<PathBuf, String> {
             return Ok(p);
         }
     }
-    Err("not in PATH".into())
+    Err("yt-dlp não está no PATH".into())
 }
 
 fn find_ffmpeg() -> Result<PathBuf, String> {
@@ -103,15 +101,15 @@ fn find_ffmpeg() -> Result<PathBuf, String> {
     let output = std::process::Command::new(cmd)
         .arg("ffmpeg")
         .output()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Erro ao buscar ffmpeg: {}", e))?;
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         return Ok(PathBuf::from(path));
     }
-    Err("ffmpeg not found".into())
+    Err("ffmpeg não encontrado. Instale o ffmpeg para continuar.".into())
 }
 
-// ─── Tauri Commands ─────────────────────────────────────
+// ─── Comandos Tauri ─────────────────────────────────────
 
 #[tauri::command]
 pub fn check_dependencies() -> Result<serde_json::Value, String> {
@@ -136,34 +134,31 @@ pub async fn get_video_info(url: String) -> Result<VideoInfo, String> {
         .arg(&url)
         .output()
         .await
-        .map_err(|e| format!("Failed to run yt-dlp: {}", e))?;
+        .map_err(|e| format!("Falha ao executar yt-dlp: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("yt-dlp error: {}", stderr));
+        return Err(format!("Erro do yt-dlp: {}", stderr));
     }
 
     let json_str = String::from_utf8_lossy(&output.stdout);
     let data: serde_json::Value = serde_json::from_str(&json_str)
-        .map_err(|e| format!("Failed to parse yt-dlp output: {}", e))?;
+        .map_err(|e| format!("Falha ao processar resposta do yt-dlp: {}", e))?;
 
-    let title = data["title"].as_str().unwrap_or("Unknown").to_string();
+    let title = data["title"].as_str().unwrap_or("Desconhecido").to_string();
     let thumbnail = data["thumbnail"].as_str().unwrap_or("").to_string();
     let duration = data["duration"].as_f64().map(|d| d as u64);
 
     let mut formats = Vec::new();
     if let Some(fmts) = data["formats"].as_array() {
         for f in fmts {
-            let vcodec = f["vcodec"].as_str().unwrap_or("none").to_string();
-            let acodec = f["acodec"].as_str().unwrap_or("none").to_string();
-
             formats.push(FormatInfo {
                 format_id: f["format_id"].as_str().unwrap_or("").to_string(),
                 ext: f["ext"].as_str().unwrap_or("").to_string(),
                 resolution: f["resolution"].as_str().map(|s| s.to_string()),
                 fps: f["fps"].as_f64(),
-                vcodec: vcodec.clone(),
-                acodec: acodec.clone(),
+                vcodec: f["vcodec"].as_str().unwrap_or("none").to_string(),
+                acodec: f["acodec"].as_str().unwrap_or("none").to_string(),
                 tbr: f["tbr"].as_f64(),
                 abr: f["abr"].as_f64(),
                 vbr: f["vbr"].as_f64(),
@@ -204,7 +199,7 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
                 "256" => args.push("256K".to_string()),
                 "192" => args.push("192K".to_string()),
                 "128" => args.push("128K".to_string()),
-                _ => args.push("0".to_string()), // best VBR
+                _ => args.push("0".to_string()),
             }
             args.push("--embed-thumbnail".to_string());
             args.push("--add-metadata".to_string());
@@ -230,7 +225,7 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
             args.push("--add-metadata".to_string());
         }
         _ => {
-            return Err(format!("Unsupported format: {}", options.format));
+            return Err(format!("Formato não suportado: {}", options.format));
         }
     }
 
@@ -239,15 +234,14 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
     let id_clone = id.clone();
     let app_clone = app.clone();
 
-    // Spawn the process and stream progress
     let mut child = tokio::process::Command::new(&ytdlp)
         .args(&args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to spawn yt-dlp: {}", e))?;
+        .map_err(|e| format!("Falha ao iniciar yt-dlp: {}", e))?;
 
-    let stdout = child.stdout.take().ok_or("No stdout")?;
+    let stdout = child.stdout.take().ok_or("Sem saída padrão")?;
     use tokio::io::{AsyncBufReadExt, BufReader};
     let reader = BufReader::new(stdout);
     let mut lines = reader.lines();
@@ -255,7 +249,6 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
     while let Ok(Some(line)) = lines.next_line().await {
         let line_str = line;
 
-        // Parse yt-dlp progress lines
         if line_str.starts_with("[download]") && line_str.contains('%') {
             let percent = parse_percent(&line_str);
             let speed = parse_speed(&line_str);
@@ -300,9 +293,9 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
             speed: String::new(),
             eta: String::new(),
             status: "error".into(),
-            error: Some("Download failed".into()),
+            error: Some("Download falhou".into()),
         });
-        Err("Download failed".into())
+        Err("Download falhou".into())
     }
 }
 
@@ -310,7 +303,7 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
 pub fn get_default_download_dir() -> Result<String, String> {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| "Cannot find home directory")?;
+        .map_err(|_| "Não foi possível encontrar a pasta home")?;
     let download_dir = PathBuf::from(&home).join("Downloads");
     Ok(download_dir.to_string_lossy().to_string())
 }
@@ -318,15 +311,132 @@ pub fn get_default_download_dir() -> Result<String, String> {
 #[tauri::command]
 pub fn open_in_file_manager(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
-    std::process::Command::new("explorer").arg(&path).spawn().map_err(|e| e.to_string())?;
+    std::process::Command::new("explorer").arg(&path).spawn().map_err(|e| format!("Erro ao abrir pasta: {}", e))?;
 
     #[cfg(target_os = "macos")]
-    std::process::Command::new("open").arg("-R").arg(&path).spawn().map_err(|e| e.to_string())?;
+    std::process::Command::new("open").arg("-R").arg(&path).spawn().map_err(|e| format!("Erro ao abrir pasta: {}", e))?;
 
     #[cfg(target_os = "linux")]
-    std::process::Command::new("xdg-open").arg(&path).spawn().map_err(|e| e.to_string())?;
+    std::process::Command::new("xdg-open").arg(&path).spawn().map_err(|e| format!("Erro ao abrir pasta: {}", e))?;
 
     Ok(())
+}
+
+// ─── Instalar yt-dlp ────────────────────────────────────
+
+#[tauri::command]
+pub async fn install_ytdlp(app: AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+
+    let emit_progress = |app: &AppHandle, msg: &str, pct: f64| {
+        let _ = app.emit("install-progress", serde_json::json!({
+            "message": msg,
+            "percent": pct
+        }));
+    };
+
+    emit_progress(&app, "Baixando yt-dlp...", 10.0);
+
+    // Determine install directory and download URL
+    let (install_dir, file_name, download_url) = if cfg!(target_os = "windows") {
+        let appdata = std::env::var("APPDATA")
+            .unwrap_or_else(|_| dirs_path("LOCALAPPDATA").unwrap_or_default().to_string_lossy().to_string());
+        let dir = PathBuf::from(&appdata).join("ytgrab");
+        (dir, "yt-dlp.exe".to_string(), "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe".to_string())
+    } else {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        let dir = PathBuf::from(&home).join(".local").join("bin");
+        (dir, "yt-dlp".to_string(), "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp".to_string())
+    };
+
+    // Create install directory
+    std::fs::create_dir_all(&install_dir)
+        .map_err(|e| format!("Erro ao criar pasta de instalação: {}", e))?;
+
+    let dest_path = install_dir.join(&file_name);
+
+    // Download the binary
+    let client = reqwest::Client::new();
+    let mut response = client.get(&download_url)
+        .send()
+        .await
+        .map_err(|e| format!("Erro ao baixar yt-dlp: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("Falha ao baixar yt-dlp (HTTP {})", response.status()));
+    }
+
+    emit_progress(&app, "Salvando arquivo...", 50.0);
+
+    let total_size = response.content_length().unwrap_or(0);
+    let mut downloaded: u64 = 0;
+    let mut file = tokio::io::BufWriter::new(
+        tokio::fs::File::create(&dest_path)
+            .await
+            .map_err(|e| format!("Erro ao criar arquivo: {}", e))?
+    );
+
+    use tokio::io::AsyncWriteExt;
+    let mut buffer = [0u8; 8192];
+
+    loop {
+        let n = response.chunk().await
+            .map_err(|e| format!("Erro no download: {}", e))?;
+        
+        match n {
+            Some(chunk) => {
+                let mut cursor = std::io::Cursor::new(&chunk);
+                loop {
+                    let read = std::io::Read::read(&mut cursor, &mut buffer)?;
+                    if read == 0 { break; }
+                    file.write_all(&buffer[..read]).await
+                        .map_err(|e| format!("Erro ao salvar: {}", e))?;
+                    downloaded += read as u64;
+                    if total_size > 0 {
+                        let pct = 50.0 + (downloaded as f64 / total_size as f64) * 40.0;
+                        emit_progress(&app, "Baixando yt-dlp...", pct);
+                    }
+                }
+            }
+            None => break,
+        }
+    }
+
+    file.flush().await.map_err(|e| format!("Erro ao finalizar arquivo: {}", e))?;
+    drop(file);
+
+    emit_progress(&app, "Configurando permissões...", 95.0);
+
+    // On Linux, make it executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dest_path, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("Erro ao definir permissões: {}", e))?;
+    }
+
+    emit_progress(&app, "yt-dlp instalado com sucesso!", 100.0);
+
+    Ok(dest_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn get_ytdlp_install_info() -> Result<serde_json::Value, String> {
+    if cfg!(target_os = "windows") {
+        Ok(serde_json::json!({
+            "platform": "windows",
+            "command": "winget install yt-dlp.yt-dlp",
+            "manualUrl": "https://github.com/yt-dlp/yt-dlp/releases/latest",
+            "hint": "Aceite os termos digitando Y quando pedido."
+        }))
+    } else {
+        Ok(serde_json::json!({
+            "platform": "linux",
+            "command": "pip install yt-dlp  (ou: sudo curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && sudo chmod +x /usr/local/bin/yt-dlp)",
+            "manualUrl": "https://github.com/yt-dlp/yt-dlp/releases/latest",
+            "hint": "Se usar pip, digite Y para aceitar os termos."
+        }))
+    }
 }
 
 // ─── Parsing helpers ─────────────────────────────────────
