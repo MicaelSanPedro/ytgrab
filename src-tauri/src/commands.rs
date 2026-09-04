@@ -306,6 +306,29 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
 // ─── Instalar yt-dlp ────────────────────────────────────
 
 #[tauri::command]
+pub fn get_default_download_dir() -> Result<String, String> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_err(|_| "Não foi possível encontrar a pasta home")?;
+    let download_dir = PathBuf::from(&home).join("Downloads");
+    Ok(download_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn open_in_file_manager(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("explorer").arg(&path).spawn().map_err(|e| format!("Erro ao abrir pasta: {}", e))?;
+
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("open").arg("-R").arg(&path).spawn().map_err(|e| format!("Erro ao abrir pasta: {}", e))?;
+
+    #[cfg(target_os = "linux")]
+    std::process::Command::new("xdg-open").arg(&path).spawn().map_err(|e| format!("Erro ao abrir pasta: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn install_ytdlp(app: AppHandle) -> Result<String, String> {
     use tauri::Manager;
 
