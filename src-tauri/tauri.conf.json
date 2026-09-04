@@ -1,7 +1,7 @@
 {
   "$schema": "https://tauri.app/v2/schemas/config.schema.json",
   "productName": "YTGrab",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "identifier": "com.ytgrab.app",
   "build": {
     "beforeDevCommand": "npm run dev",
