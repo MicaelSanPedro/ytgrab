@@ -131,6 +131,8 @@ pub async fn get_video_info(url: String) -> Result<VideoInfo, String> {
         .arg("--dump-json")
         .arg("--no-download")
         .arg("--flat-playlist")
+        .arg("--extractor-args")
+        .arg("youtube:player_client=android")
         .arg(&url)
         .output()
         .await
@@ -175,34 +177,21 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
     let ytdlp = find_ytdlp()?;
     let id = format!("dl-{}", chrono_free_id());
 
-    let output_template = format!(
-        "{}/{}.%(ext)s",
-        options.output_dir, options.filename
-    );
+    let output_template = format!("{}/{}.%(ext)s", options.output_dir, options.filename);
 
-    // Comandos simples e diretos, igual ao yt-dlp no terminal
+    // Comando simples e direto, igual ao terminal
     let mut args = vec![
         "--newline".to_string(),
         "--no-warnings".to_string(),
         "-o".to_string(),
         output_template,
+        // Fix 403 do YouTube - força player_client=android
+        "--extractor-args".to_string(),
+        "youtube:player_client=android".to_string(),
     ];
-
-    // Tentar cookies do navegador pra evitar 403
-    let browsers = if cfg!(target_os = "windows") {
-        vec!["chrome", "edge", "firefox"]
-    } else {
-        vec!["chrome", "firefox", "brave"]
-    };
-    for browser in &browsers {
-        args.push("--cookies-from-browser".to_string());
-        args.push(browser.to_string());
-        break; // tenta o primeiro, se falhar tenta sem cookies
-    }
 
     match options.format.as_str() {
         "mp3" => {
-            // yt-dlp -x --audio-format mp3 --audio-quality 0
             args.push("-x".to_string());
             args.push("--audio-format".to_string());
             args.push("mp3".to_string());
@@ -218,8 +207,6 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
             args.push("--add-metadata".to_string());
         }
         "mp4" => {
-            // yt-dlp -f "bv*+ba/b" --merge-output-format mp4
-            // Deixa o yt-dlp escolher o melhor formato sozinho
             let height = match options.quality.as_str() {
                 "4k" | "2160" => "2160",
                 "1440" => "1440",
@@ -236,9 +223,7 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
             args.push("--embed-thumbnail".to_string());
             args.push("--add-metadata".to_string());
         }
-        _ => {
-            return Err(format!("Formato não suportado: {}", options.format));
-        }
+        _ => return Err(format!("Formato não suportado: {}", options.format)),
     }
 
     args.push(options.url.clone());
@@ -246,38 +231,9 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
     let id_clone = id.clone();
     let app_clone = app.clone();
 
-    // Tenta com cookies primeiro; se falhar, tenta sem cookies
-    let result = run_ytdlp(&ytdlp, &args, &app_clone, &id_clone).await;
-
-    match result {
-        Ok(_) => Ok(id),
-        Err(err_msg) => {
-            // Se deu 403 ou erro de cookies, tenta sem cookies
-            if err_msg.contains("403") || err_msg.contains("cookie") || err_msg.contains("Cookie") || err_msg.contains("Forbidden") {
-                let args_no_cookies: Vec<String> = args.iter()
-                    .filter(|a| *a != "--cookies-from-browser")
-                    .cloned()
-                    .collect::<Vec<String>>()
-                    .iter()
-                    .filter(|a| !browsers.contains(&a.as_str()))
-                    .cloned()
-                    .collect();
-
-                let retry = run_ytdlp(&ytdlp, &args_no_cookies, &app_clone, &id_clone).await;
-                match retry {
-                    Ok(_) => Ok(id),
-                    Err(e) => Err(e),
-                }
-            } else {
-                Err(err_msg)
-            }
-        }
-    }
-}
-
-async fn run_ytdlp(ytdlp: &PathBuf, args: &[String], app: &AppHandle, id: &str) -> Result<(), String> {
-    let mut child = tokio::process::Command::new(ytdlp)
-        .args(args)
+    // Executa o yt-dlp igual ao cmd
+    let mut child = tokio::process::Command::new(&ytdlp)
+        .args(&args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -285,7 +241,6 @@ async fn run_ytdlp(ytdlp: &PathBuf, args: &[String], app: &AppHandle, id: &str) 
 
     let stdout = child.stdout.take().ok_or("Sem saída padrão")?;
     let stderr_handle = child.stderr.take().ok_or("Sem saída de erro")?;
-
     use tokio::io::{AsyncBufReadExt, BufReader};
 
     let stderr_reader = BufReader::new(stderr_handle);
@@ -301,26 +256,18 @@ async fn run_ytdlp(ytdlp: &PathBuf, args: &[String], app: &AppHandle, id: &str) 
                 match line {
                     Ok(Some(line_str)) => {
                         if line_str.starts_with("[download]") && line_str.contains('%') {
-                            let percent = parse_percent(&line_str);
-                            let speed = parse_speed(&line_str);
-                            let eta = parse_eta(&line_str);
-
-                            let _ = app.emit("download-progress", DownloadProgress {
-                                id: id.to_string(),
-                                percent,
-                                speed,
-                                eta,
+                            let _ = app_clone.emit("download-progress", DownloadProgress {
+                                id: id_clone.clone(),
+                                percent: parse_percent(&line_str),
+                                speed: parse_speed(&line_str),
+                                eta: parse_eta(&line_str),
                                 status: "downloading".into(),
                                 error: None,
                             });
                         } else if line_str.contains("Merging") || line_str.contains("Deleting") || line_str.contains("Converting") || line_str.contains("Extracting") {
-                            let _ = app.emit("download-progress", DownloadProgress {
-                                id: id.to_string(),
-                                percent: 100.0,
-                                speed: String::new(),
-                                eta: String::new(),
-                                status: "processing".into(),
-                                error: None,
+                            let _ = app_clone.emit("download-progress", DownloadProgress {
+                                id: id_clone.clone(), percent: 100.0, speed: String::new(), eta: String::new(),
+                                status: "processing".into(), error: None,
                             });
                         }
                     }
@@ -329,75 +276,32 @@ async fn run_ytdlp(ytdlp: &PathBuf, args: &[String], app: &AppHandle, id: &str) 
                 }
             }
             err_line = stderr_lines.next_line() => {
-                match err_line {
-                    Ok(Some(l)) => {
-                        stderr_output.push_str(&l);
-                        stderr_output.push('\n');
-                    }
-                    _ => {}
-                }
+                if let Ok(Some(l)) = err_line { stderr_output.push_str(&l); stderr_output.push('\n'); }
             }
         }
     }
 
-    while let Ok(Some(l)) = stderr_lines.next_line().await {
-        stderr_output.push_str(&l);
-        stderr_output.push('\n');
-    }
-
+    while let Ok(Some(l)) = stderr_lines.next_line().await { stderr_output.push_str(&l); stderr_output.push('\n'); }
     let status = child.wait().await.map_err(|e| e.to_string())?;
 
     if status.success() {
         let _ = app.emit("download-progress", DownloadProgress {
-            id: id.to_string(),
-            percent: 100.0,
-            speed: String::new(),
-            eta: String::new(),
-            status: "done".into(),
-            error: None,
+            id: id_clone, percent: 100.0, speed: String::new(), eta: String::new(),
+            status: "done".into(), error: None,
         });
-        Ok(())
+        Ok(id)
     } else {
-        let err_msg = if stderr_output.is_empty() {
-            "Download falhou".to_string()
-        } else {
-            let lines_vec: Vec<&str> = stderr_output.trim().lines().take(5).collect();
-            format!("Erro: {}", lines_vec.join("\n"))
-        };
+        let err_msg = if stderr_output.is_empty() { "Download falhou".to_string() }
+        else { format!("Erro: {}", stderr_output.trim().lines().take(3).collect::<Vec<_>>().join("\n")) };
         let _ = app.emit("download-progress", DownloadProgress {
-            id: id.to_string(),
-            percent: 0.0,
-            speed: String::new(),
-            eta: String::new(),
-            status: "error".into(),
-            error: Some(err_msg.clone()),
+            id: id_clone, percent: 0.0, speed: String::new(), eta: String::new(),
+            status: "error".into(), error: Some(err_msg.clone()),
         });
         Err(err_msg)
     }
 }
 
-#[tauri::command]
-pub fn get_default_download_dir() -> Result<String, String> {
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| "Não foi possível encontrar a pasta home")?;
-    let download_dir = PathBuf::from(&home).join("Downloads");
-    Ok(download_dir.to_string_lossy().to_string())
-}
 
-#[tauri::command]
-pub fn open_in_file_manager(path: String) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    std::process::Command::new("explorer").arg(&path).spawn().map_err(|e| format!("Erro ao abrir pasta: {}", e))?;
-
-    #[cfg(target_os = "macos")]
-    std::process::Command::new("open").arg("-R").arg(&path).spawn().map_err(|e| format!("Erro ao abrir pasta: {}", e))?;
-
-    #[cfg(target_os = "linux")]
-    std::process::Command::new("xdg-open").arg(&path).spawn().map_err(|e| format!("Erro ao abrir pasta: {}", e))?;
-
-    Ok(())
-}
 
 // ─── Instalar yt-dlp ────────────────────────────────────
 
