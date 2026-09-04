@@ -13,7 +13,9 @@ pub fn run() {
             commands::download,
             commands::get_default_download_dir,
             commands::open_in_file_manager,
+            commands::install_ytdlp,
+            commands::get_ytdlp_install_info,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("erro ao executar aplicação tauri");
 }

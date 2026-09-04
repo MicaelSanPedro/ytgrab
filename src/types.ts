@@ -1,11 +1,11 @@
-export interface VideoInfo {
+export type VideoInfo = {
   title: string;
   thumbnail: string;
   duration: number | null;
   formats: FormatInfo[];
-}
+};
 
-export interface FormatInfo {
+export type FormatInfo = {
   format_id: string;
   ext: string;
   resolution: string | null;
@@ -16,40 +16,40 @@ export interface FormatInfo {
   abr: number | null;
   vbr: number | null;
   filesize: number | null;
-}
+};
 
-export interface DownloadOptions {
+export type DownloadOptions = {
   url: string;
-  format: "mp3" | "mp4";
+  format: string;
   quality: string;
   output_dir: string;
   filename: string;
-}
+};
 
-export interface DownloadProgress {
+export type DownloadProgress = {
   id: string;
   percent: number;
   speed: string;
   eta: string;
   status: "downloading" | "processing" | "done" | "error";
   error: string | null;
-}
+};
 
-export interface DownloadItem {
+export type DownloadItem = {
   id: string;
   url: string;
   title: string;
-  format: "mp3" | "mp4";
+  format: string;
   quality: string;
   percent: number;
   speed: string;
   eta: string;
   status: "downloading" | "processing" | "done" | "error";
   error: string | null;
-}
+};
 
 export const AUDIO_QUALITIES = [
-  { value: "best", label: "Melhor (VBR ~245kbps)" },
+  { value: "best", label: "Melhor VBR" },
   { value: "320", label: "320 kbps" },
   { value: "256", label: "256 kbps" },
   { value: "192", label: "192 kbps" },
@@ -62,5 +62,5 @@ export const VIDEO_QUALITIES = [
   { value: "1080", label: "Full HD (1080p)" },
   { value: "720", label: "HD (720p)" },
   { value: "480", label: "SD (480p)" },
-  { value: "360", label: "Baixa (360p)" },
+  { value: "360", label: "Baixo (360p)" },
 ];
