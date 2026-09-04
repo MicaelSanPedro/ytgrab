@@ -387,7 +387,7 @@ pub async fn install_ytdlp(app: AppHandle) -> Result<String, String> {
             Some(chunk) => {
                 let mut cursor = std::io::Cursor::new(&chunk);
                 loop {
-                    let read = std::io::Read::read(&mut cursor, &mut buffer)?;
+                    let read = std::io::Read::read(&mut cursor, &mut buffer).map_err(|e| format!("Erro de leitura: {}", e))?;
                     if read == 0 { break; }
                     file.write_all(&buffer[..read]).await
                         .map_err(|e| format!("Erro ao salvar: {}", e))?;
