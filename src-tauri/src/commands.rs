@@ -180,16 +180,29 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
         options.output_dir, options.filename
     );
 
+    // Comandos simples e diretos, igual ao yt-dlp no terminal
     let mut args = vec![
         "--newline".to_string(),
-        "--progress".to_string(),
         "--no-warnings".to_string(),
         "-o".to_string(),
         output_template,
     ];
 
+    // Tentar cookies do navegador pra evitar 403
+    let browsers = if cfg!(target_os = "windows") {
+        vec!["chrome", "edge", "firefox"]
+    } else {
+        vec!["chrome", "firefox", "brave"]
+    };
+    for browser in &browsers {
+        args.push("--cookies-from-browser".to_string());
+        args.push(browser.to_string());
+        break; // tenta o primeiro, se falhar tenta sem cookies
+    }
+
     match options.format.as_str() {
         "mp3" => {
+            // yt-dlp -x --audio-format mp3 --audio-quality 0
             args.push("-x".to_string());
             args.push("--audio-format".to_string());
             args.push("mp3".to_string());
@@ -205,6 +218,8 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
             args.push("--add-metadata".to_string());
         }
         "mp4" => {
+            // yt-dlp -f "bv*+ba/b" --merge-output-format mp4
+            // Deixa o yt-dlp escolher o melhor formato sozinho
             let height = match options.quality.as_str() {
                 "4k" | "2160" => "2160",
                 "1440" => "1440",
@@ -215,10 +230,7 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
                 _ => "1080",
             };
             args.push("-f".to_string());
-            args.push(format!(
-                "bestvideo[height<={}]+bestaudio/best[height<={}]",
-                height, height
-            ));
+            args.push(format!("bv*[height<={}]+ba/b[height<={}]/b", height, height));
             args.push("--merge-output-format".to_string());
             args.push("mp4".to_string());
             args.push("--embed-thumbnail".to_string());
@@ -234,8 +246,38 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
     let id_clone = id.clone();
     let app_clone = app.clone();
 
-    let mut child = tokio::process::Command::new(&ytdlp)
-        .args(&args)
+    // Tenta com cookies primeiro; se falhar, tenta sem cookies
+    let result = run_ytdlp(&ytdlp, &args, &app_clone, &id_clone).await;
+
+    match result {
+        Ok(_) => Ok(id),
+        Err(err_msg) => {
+            // Se deu 403 ou erro de cookies, tenta sem cookies
+            if err_msg.contains("403") || err_msg.contains("cookie") || err_msg.contains("Cookie") || err_msg.contains("Forbidden") {
+                let args_no_cookies: Vec<String> = args.iter()
+                    .filter(|a| *a != "--cookies-from-browser")
+                    .cloned()
+                    .collect::<Vec<String>>()
+                    .iter()
+                    .filter(|a| !browsers.contains(&a.as_str()))
+                    .cloned()
+                    .collect();
+
+                let retry = run_ytdlp(&ytdlp, &args_no_cookies, &app_clone, &id_clone).await;
+                match retry {
+                    Ok(_) => Ok(id),
+                    Err(e) => Err(e),
+                }
+            } else {
+                Err(err_msg)
+            }
+        }
+    }
+}
+
+async fn run_ytdlp(ytdlp: &PathBuf, args: &[String], app: &AppHandle, id: &str) -> Result<(), String> {
+    let mut child = tokio::process::Command::new(ytdlp)
+        .args(args)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -246,7 +288,6 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
 
     use tokio::io::{AsyncBufReadExt, BufReader};
 
-    // Ler stderr em background para capturar mensagens de erro
     let stderr_reader = BufReader::new(stderr_handle);
     let mut stderr_lines = stderr_reader.lines();
     let mut stderr_output = String::new();
@@ -264,8 +305,8 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
                             let speed = parse_speed(&line_str);
                             let eta = parse_eta(&line_str);
 
-                            let _ = app_clone.emit("download-progress", DownloadProgress {
-                                id: id_clone.clone(),
+                            let _ = app.emit("download-progress", DownloadProgress {
+                                id: id.to_string(),
                                 percent,
                                 speed,
                                 eta,
@@ -273,8 +314,8 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
                                 error: None,
                             });
                         } else if line_str.contains("Merging") || line_str.contains("Deleting") || line_str.contains("Converting") || line_str.contains("Extracting") {
-                            let _ = app_clone.emit("download-progress", DownloadProgress {
-                                id: id_clone.clone(),
+                            let _ = app.emit("download-progress", DownloadProgress {
+                                id: id.to_string(),
                                 percent: 100.0,
                                 speed: String::new(),
                                 eta: String::new(),
@@ -299,7 +340,6 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
         }
     }
 
-    // Drain remaining stderr
     while let Ok(Some(l)) = stderr_lines.next_line().await {
         stderr_output.push_str(&l);
         stderr_output.push('\n');
@@ -309,22 +349,23 @@ pub async fn download(app: AppHandle, options: DownloadOptions) -> Result<String
 
     if status.success() {
         let _ = app.emit("download-progress", DownloadProgress {
-            id: id_clone,
+            id: id.to_string(),
             percent: 100.0,
             speed: String::new(),
             eta: String::new(),
             status: "done".into(),
             error: None,
         });
-        Ok(id)
+        Ok(())
     } else {
         let err_msg = if stderr_output.is_empty() {
             "Download falhou".to_string()
         } else {
-            format!("Erro: {}", stderr_output.trim().lines().take(5).collect::<Vec<_>>().join("\n"))
+            let lines_vec: Vec<&str> = stderr_output.trim().lines().take(5).collect();
+            format!("Erro: {}", lines_vec.join("\n"))
         };
         let _ = app.emit("download-progress", DownloadProgress {
-            id: id_clone,
+            id: id.to_string(),
             percent: 0.0,
             speed: String::new(),
             eta: String::new(),
