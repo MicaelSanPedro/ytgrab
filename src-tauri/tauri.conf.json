@@ -1,0 +1,57 @@
+{
+  "$schema": "https://tauri.app/v2/schemas/config.schema.json",
+  "productName": "YTGrab",
+  "version": "1.0.0",
+  "identifier": "com.ytgrab.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "title": "YTGrab",
+        "width": 480,
+        "height": 680,
+        "minWidth": 420,
+        "minHeight": 580,
+        "resizable": true,
+        "fullscreen": false,
+        "decorations": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [],
+    "linux": {
+      "deb": {
+        "depends": ["ffmpeg"]
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    },
+    "dialog": {
+      "open": true,
+      "save": true
+    }
+  }
+}

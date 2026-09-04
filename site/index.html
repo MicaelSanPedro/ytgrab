@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YTGrab — YouTube Downloader</title>
+  <meta name="description" content="Baixe vídeos do YouTube em MP3 e MP4 com qualquer qualidade. Baseado em yt-dlp." />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --red: #dc2626;
+      --red-light: #ef4444;
+      --bg: #09090b;
+      --surface: #18181b;
+      --border: rgba(255,255,255,0.08);
+      --text: #fafafa;
+      --text-dim: #a1a1aa;
+      --text-dimmer: #71717a;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* Glow background */
+    .glow {
+      position: fixed;
+      top: -200px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 800px;
+      height: 500px;
+      background: radial-gradient(ellipse, rgba(220,38,38,0.12) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Header */
+    header {
+      padding: 24px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: var(--text);
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--red);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo-icon svg { width: 20px; height: 20px; }
+
+    .logo-text {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .github-link {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 14px;
+      transition: color 0.2s;
+    }
+    .github-link:hover { color: var(--text); }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 80px 0 48px;
+    }
+
+    .hero h1 {
+      font-size: 48px;
+      font-weight: 800;
+      letter-spacing: -1.5px;
+      line-height: 1.1;
+      margin-bottom: 16px;
+    }
+
+    .hero h1 span { color: var(--red-light); }
+
+    .hero p {
+      font-size: 18px;
+      color: var(--text-dim);
+      max-width: 480px;
+      margin: 0 auto;
+    }
+
+    /* Download buttons */
+    .downloads {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 40px;
+      max-width: 400px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .dl-btn {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      border-radius: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      text-decoration: none;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+
+    .dl-btn:hover {
+      border-color: rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.06);
+      transform: translateY(-1px);
+    }
+
+    .dl-btn-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.05);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+    }
+
+    .dl-btn-text {
+      flex: 1;
+    }
+
+    .dl-btn-text strong {
+      display: block;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .dl-btn-text span {
+      font-size: 12px;
+      color: var(--text-dimmer);
+    }
+
+    .dl-btn-arrow {
+      color: var(--text-dimmer);
+      font-size: 18px;
+    }
+
+    /* Features */
+    .features {
+      margin-top: 64px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    @media (max-width: 600px) {
+      .features { grid-template-columns: 1fr; }
+      .hero h1 { font-size: 36px; }
+    }
+
+    .feature {
+      padding: 24px;
+      border-radius: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+
+    .feature-icon {
+      font-size: 24px;
+      margin-bottom: 12px;
+    }
+
+    .feature h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .feature p {
+      font-size: 13px;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+
+    /* Install section */
+    .install {
+      margin-top: 64px;
+      padding: 32px;
+      border-radius: 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+
+    .install h2 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 20px;
+    }
+
+    .install-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .step {
+      display: flex;
+      gap: 12px;
+    }
+
+    .step-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--red);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+
+    .step-content h4 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .step-content p {
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+
+    code {
+      background: rgba(255,255,255,0.06);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      color: var(--red-light);
+    }
+
+    .code-block {
+      background: rgba(0,0,0,0.4);
+      padding: 16px;
+      border-radius: 8px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 13px;
+      color: #d4d4d8;
+      margin-top: 8px;
+      overflow-x: auto;
+    }
+
+    /* Footer */
+    footer {
+      margin-top: 64px;
+      padding: 24px 0;
+      text-align: center;
+      font-size: 13px;
+      color: var(--text-dimmer);
+      border-top: 1px solid var(--border);
+    }
+
+    footer a {
+      color: var(--text-dim);
+      text-decoration: none;
+    }
+    footer a:hover { color: var(--text); }
+  </style>
+</head>
+<body>
+  <div class="glow"></div>
+
+  <div class="container">
+    <header>
+      <a href="/" class="logo">
+        <div class="logo-icon">
+          <svg viewBox="0 0 100 100" fill="white"><polygon points="35,22 35,78 75,50"/></svg>
+        </div>
+        <span class="logo-text">YTGrab</span>
+      </a>
+      <a href="https://github.com/MicaelSanPedro/ytgrab" class="github-link" target="_blank">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.245.615 1.035 1.59 1.305 2.55.975.075-.63.285-1.305.615-1.65-2.16-.24-4.41-1.08-4.41-4.8 0-1.065.375-1.935 1.005-2.625-.105-.255-.45-1.275.105-2.55.87-.27 2.88 1.065 2.88 1.065-.825-.225-1.68-.33-2.55-.33s-1.725.105-2.55.33c0 0 2.01-1.335 2.88-1.065.555 1.275.21 2.295.105 2.55.63.69 1.005 1.56 1.005 2.625 0 3.72-2.25 4.56-4.41 4.8.345.3.675.87.675 1.785 0 1.29-.015 2.325-.015 2.625 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+        GitHub
+      </a>
+    </header>
+
+    <section class="hero">
+      <h1>Baixe do <span>YouTube</span><br/>sem limites</h1>
+      <p>MP3, MP4, qualquer qualidade — direto no seu PC. Sem servidor, sem limite, sem custo.</p>
+    </section>
+
+    <div class="downloads">
+      <a class="dl-btn" href="https://github.com/MicaelSanPedro/ytgrab/releases/latest">
+        <div class="dl-btn-icon">🪟</div>
+        <div class="dl-btn-text">
+          <strong>Windows</strong>
+          <span>.exe installer — 64-bit</span>
+        </div>
+        <div class="dl-btn-arrow">→</div>
+      </a>
+      <a class="dl-btn" href="https://github.com/MicaelSanPedro/ytgrab/releases/latest">
+        <div class="dl-btn-icon">🍎</div>
+        <div class="dl-btn-text">
+          <strong>macOS</strong>
+          <span>.dmg — Intel & Apple Silicon</span>
+        </div>
+        <div class="dl-btn-arrow">→</div>
+      </a>
+      <a class="dl-btn" href="https://github.com/MicaelSanPedro/ytgrab/releases/latest">
+        <div class="dl-btn-icon">🐧</div>
+        <div class="dl-btn-text">
+          <strong>Linux</strong>
+          <span>.deb & .AppImage</span>
+        </div>
+        <div class="dl-btn-arrow">→</div>
+      </a>
+    </div>
+
+    <section class="features">
+      <div class="feature">
+        <div class="feature-icon">🎵</div>
+        <h3>MP3 320kbps</h3>
+        <p>Extraia áudio na melhor qualidade com metadados e thumbnail embutidos.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🎬</div>
+        <h3>MP4 até 4K</h3>
+        <p>Baixe vídeos em 360p até 2160p (4K). Merge automático de vídeo+áudio.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">⚡</div>
+        <h3>Sem servidor</h3>
+        <p>Roda 100% local. Sem upload, sem limite de tempo, sem custo de hospedagem.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">📋</div>
+        <h3>Playlists</h3>
+        <p>Cole o link da playlist e baixe tudo de uma vez, com progresso individual.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🏷️</div>
+        <h3>Metadados</h3>
+        <p>Thumbnail, título, artista — tudo embutido no arquivo final.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🔒</div>
+        <h3>Privacidade</h3>
+        <p>Nada sai do seu PC. Sem telemetria, sem analytics, sem tracking.</p>
+      </div>
+    </section>
+
+    <section class="install">
+      <h2>Como instalar</h2>
+      <div class="install-steps">
+        <div class="step">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <h4>Baixe o instalador</h4>
+            <p>Escolha Windows, macOS ou Linux acima e baixe o instalador.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <h4>Instale e abra</h4>
+            <p>Execute o instalador. O YTGrab abre automaticamente ao final.</p>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <h4>Pré-requisitos: yt-dlp + ffmpeg</h4>
+            <p>O app precisa do <code>yt-dlp</code> e <code>ffmpeg</code> instalados. Instale com:</p>
+            <div class="code-block">
+              <div># Windows (com winget)</div>
+              <div>winget install yt-dlp.yt-dlp</div>
+              <div>winget install Gyan.FFmpeg</div>
+              <div></div>
+              <div># macOS (com Homebrew)</div>
+              <div>brew install yt-dlp ffmpeg</div>
+              <div></div>
+              <div># Linux (Ubuntu/Debian)</div>
+              <div>sudo apt install ffmpeg</div>
+              <div>pip install yt-dlp</div>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <h4>Cole a URL e baixe!</h4>
+            <p>Cole qualquer link do YouTube, escolha formato e qualidade, e clique em Baixar.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <p>YTGrab · Baseado em <a href="https://github.com/yt-dlp/yt-dlp" target="_blank">yt-dlp</a> + <a href="https://tauri.app" target="_blank">Tauri</a> · <a href="https://github.com/MicaelSanPedro/ytgrab" target="_blank">Código fonte</a></p>
+    </footer>
+  </div>
+</body>
+</html>
