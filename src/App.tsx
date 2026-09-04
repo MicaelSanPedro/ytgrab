@@ -132,7 +132,7 @@ export default function App() {
 
     try {
       await invoke("download", {
-        options: { url: url.trim(), format, quality, outputDir, filename: safeTitle },
+        options: { url: url.trim(), format, quality, output_dir: outputDir, filename: safeTitle },
       });
     } catch (e) {
       setError(String(e));
