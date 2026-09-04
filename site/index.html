@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>YTGrab — YouTube Downloader</title>
   <meta name="description" content="Baixe vídeos do YouTube em MP3 e MP4 com qualquer qualidade. Baseado em yt-dlp." />
-  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
@@ -30,7 +29,6 @@
       overflow-x: hidden;
     }
 
-    /* Glow background */
     .glow {
       position: fixed;
       top: -200px;
@@ -51,7 +49,6 @@
       z-index: 1;
     }
 
-    /* Header */
     header {
       padding: 24px 0;
       display: flex;
@@ -96,7 +93,6 @@
     }
     .github-link:hover { color: var(--text); }
 
-    /* Hero */
     .hero {
       text-align: center;
       padding: 80px 0 48px;
@@ -119,7 +115,6 @@
       margin: 0 auto;
     }
 
-    /* Download buttons */
     .downloads {
       display: flex;
       flex-direction: column;
@@ -182,7 +177,6 @@
       font-size: 18px;
     }
 
-    /* Features */
     .features {
       margin-top: 64px;
       display: grid;
@@ -219,7 +213,6 @@
       line-height: 1.5;
     }
 
-    /* Install section */
     .install {
       margin-top: 64px;
       padding: 32px;
@@ -290,7 +283,17 @@
       overflow-x: auto;
     }
 
-    /* Footer */
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(34,197,94,0.15);
+      color: #22c55e;
+      margin-left: 8px;
+    }
+
     footer {
       margin-top: 64px;
       padding: 24px 0;
@@ -330,27 +333,27 @@
     </section>
 
     <div class="downloads">
-      <a class="dl-btn" href="https://github.com/MicaelSanPedro/ytgrab/releases/latest">
+      <a class="dl-btn" href="https://github.com/MicaelSanPedro/ytgrab/releases/download/v1.0.0/YTGrab_1.0.0_x64-setup.exe">
         <div class="dl-btn-icon">🪟</div>
         <div class="dl-btn-text">
-          <strong>Windows</strong>
-          <span>.exe installer — 64-bit</span>
+          <strong>Windows <span class="badge">Funciona!</span></strong>
+          <span>YTGrab_1.0.0_x64-setup.exe — 2.7 MB</span>
         </div>
         <div class="dl-btn-arrow">→</div>
       </a>
-      <a class="dl-btn" href="https://github.com/MicaelSanPedro/ytgrab/releases/latest">
-        <div class="dl-btn-icon">🍎</div>
-        <div class="dl-btn-text">
-          <strong>macOS</strong>
-          <span>.dmg — Intel & Apple Silicon</span>
-        </div>
-        <div class="dl-btn-arrow">→</div>
-      </a>
-      <a class="dl-btn" href="https://github.com/MicaelSanPedro/ytgrab/releases/latest">
+      <a class="dl-btn" href="https://github.com/MicaelSanPedro/ytgrab/releases/download/v1.0.0/YTGrab_1.0.0_amd64.AppImage">
         <div class="dl-btn-icon">🐧</div>
         <div class="dl-btn-text">
-          <strong>Linux</strong>
-          <span>.deb & .AppImage</span>
+          <strong>Linux <span class="badge">Funciona!</span></strong>
+          <span>YTGrab_1.0.0_amd64.AppImage — 78 MB</span>
+        </div>
+        <div class="dl-btn-arrow">→</div>
+      </a>
+      <a class="dl-btn" href="https://github.com/MicaelSanPedro/ytgrab/releases/download/v1.0.0/YTGrab_1.0.0_amd64.deb">
+        <div class="dl-btn-icon">📦</div>
+        <div class="dl-btn-text">
+          <strong>Linux (.deb)</strong>
+          <span>YTGrab_1.0.0_amd64.deb — 4.2 MB</span>
         </div>
         <div class="dl-btn-arrow">→</div>
       </a>
@@ -396,14 +399,14 @@
           <div class="step-num">1</div>
           <div class="step-content">
             <h4>Baixe o instalador</h4>
-            <p>Escolha Windows, macOS ou Linux acima e baixe o instalador.</p>
+            <p>Escolha Windows ou Linux acima e baixe o instalador.</p>
           </div>
         </div>
         <div class="step">
           <div class="step-num">2</div>
           <div class="step-content">
             <h4>Instale e abra</h4>
-            <p>Execute o instalador. O YTGrab abre automaticamente ao final.</p>
+            <p>Execute o instalador. No Windows, o YTGrab abre automaticamente. No Linux, dê <code>chmod +x</code> no AppImage e execute.</p>
           </div>
         </div>
         <div class="step">
@@ -415,9 +418,6 @@
               <div># Windows (com winget)</div>
               <div>winget install yt-dlp.yt-dlp</div>
               <div>winget install Gyan.FFmpeg</div>
-              <div></div>
-              <div># macOS (com Homebrew)</div>
-              <div>brew install yt-dlp ffmpeg</div>
               <div></div>
               <div># Linux (Ubuntu/Debian)</div>
               <div>sudo apt install ffmpeg</div>
