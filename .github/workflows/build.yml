@@ -34,82 +34,45 @@ jobs:
           releaseName: 'YTGrab v__VERSION__'
           releaseBody: 'Nova versão do YTGrab'
           releaseDraft: false
-          prerelease: true
+          prerelease: false
 
-  build-android:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK components
-        run: |
-          yes | sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
-
-      - name: Set Android environment
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
-
-      - name: Install frontend deps
-        run: npm install
-
-      - name: Build Android APK
-        run: npx tauri android build
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Rename and release APK
-        run: |
-          # Find the APK
-          APK_PATH=$(find src-tauri/gen/android -name "*.apk" -type f | head -1)
-          if [ -z "$APK_PATH" ]; then
-            echo "No APK found!"
-            exit 1
-          fi
-          echo "Found APK: $APK_PATH"
-          
-          # Read version from tauri.conf.json
-          VERSION=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*"version": *"//;s/".*//')
-          echo "Version: $VERSION"
-          
-          # Rename APK
-          NEW_NAME="YTGrab_${VERSION}_android.apk"
-          cp "$APK_PATH" "$NEW_NAME"
-          echo "Renamed to: $NEW_NAME"
-          echo "APK_FILE=$NEW_NAME" >> $GITHUB_ENV
-          echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ytgrab-android
-          path: YTGrab_*.apk
-
-      - name: Release APK
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ env.APP_VERSION }}
-          files: YTGrab_*.apk
-          prerelease: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Android build disabled - needs `npx tauri android init` and platform-specific code first
+  # build-android:
+  #   runs-on: ubuntu-latest
+  #   needs: build-windows
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Setup Node
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 20
+  #     - name: Setup Java
+  #       uses: actions/setup-java@v4
+  #       with:
+  #         distribution: 'zulu'
+  #         java-version: '17'
+  #     - name: Setup Android SDK
+  #       uses: android-actions/setup-android@v3
+  #     - name: Install Android SDK components
+  #       run: |
+  #         yes | sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
+  #     - name: Set Android environment
+  #       run: |
+  #         echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+  #         echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
+  #         echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
+  #     - name: Setup Rust
+  #       uses: dtolnay/rust-toolchain@stable
+  #       with:
+  #         targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+  #     - name: Install frontend deps
+  #       run: npm install
+  #     - name: Init Android project
+  #       run: npx tauri android init
+  #     - name: Build Android APK
+  #       run: npx tauri android build
+  #     - name: Upload APK
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: ytgrab-android
+  #         path: src-tauri/gen/android/**/*.apk
