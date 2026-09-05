@@ -107,7 +107,7 @@ fn find_ffmpeg() -> Option<PathBuf> {
 
 /// Install yt-dlp by downloading from GitHub
 #[tauri::command]
-async fn install_ytdlp() -> Result<String, String> {
+pub async fn install_ytdlp() -> Result<String, String> {
     let app_dir = get_app_dir()?;
     let ytdlp_path = app_dir.join(ytdlp_bin_name());
 
@@ -137,7 +137,7 @@ async fn install_ytdlp() -> Result<String, String> {
 
 /// Install ffmpeg by downloading from GitHub (gyan.dev builds for Windows)
 #[tauri::command]
-async fn install_ffmpeg() -> Result<String, String> {
+pub async fn install_ffmpeg() -> Result<String, String> {
     let app_dir = get_app_dir()?;
     let ffmpeg_path = app_dir.join(ffmpeg_bin_name());
 
@@ -195,7 +195,7 @@ async fn install_ffmpeg() -> Result<String, String> {
 
 /// Check if yt-dlp and ffmpeg are installed
 #[tauri::command]
-async fn check_dependencies() -> Result<HashMap<String, bool>, String> {
+pub async fn check_dependencies() -> Result<HashMap<String, bool>, String> {
     let mut result = HashMap::new();
     result.insert("ytdlp".to_string(), find_ytdlp().is_ok());
     result.insert("ffmpeg".to_string(), find_ffmpeg().is_some());
@@ -204,7 +204,7 @@ async fn check_dependencies() -> Result<HashMap<String, bool>, String> {
 
 /// Get yt-dlp install info (path and version)
 #[tauri::command]
-async fn get_ytdlp_install_info() -> Result<HashMap<String, String>, String> {
+pub async fn get_ytdlp_install_info() -> Result<HashMap<String, String>, String> {
     let mut result = HashMap::new();
 
     match find_ytdlp() {
@@ -242,7 +242,7 @@ async fn get_ytdlp_install_info() -> Result<HashMap<String, String>, String> {
 
 /// Get video info using yt-dlp
 #[tauri::command]
-async fn get_video_info(url: String) -> Result<VideoInfo, String> {
+pub async fn get_video_info(url: String) -> Result<VideoInfo, String> {
     let ytdlp = find_ytdlp()?;
 
     let mut cmd = Command::new(&ytdlp);
@@ -285,7 +285,7 @@ async fn get_video_info(url: String) -> Result<VideoInfo, String> {
 
 /// Get default download directory
 #[tauri::command]
-async fn get_default_download_dir() -> Result<String, String> {
+pub async fn get_default_download_dir() -> Result<String, String> {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .map_err(|e| format!("Erro ao obter diretório home: {}", e))?;
@@ -510,7 +510,7 @@ fn cleanup_intermediate_files(output_dir: &str) {
 
 /// Download video/audio using yt-dlp with simple direct commands
 #[tauri::command]
-async fn download(
+pub async fn download(
     app: tauri::AppHandle,
     url: String,
     format: String,
@@ -600,7 +600,7 @@ async fn download(
 
 /// Open directory in file manager
 #[tauri::command]
-async fn open_in_file_manager(path: String) -> Result<(), String> {
+pub async fn open_in_file_manager(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         let _ = std::process::Command::new("explorer").arg(&path).spawn();
@@ -614,6 +614,6 @@ async fn open_in_file_manager(path: String) -> Result<(), String> {
 
 /// Cancel any running download (placeholder)
 #[tauri::command]
-async fn cancel_download() -> Result<(), String> {
+pub async fn cancel_download() -> Result<(), String> {
     Ok(())
 }
