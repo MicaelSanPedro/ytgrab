@@ -20,13 +20,10 @@ jobs:
           node-version: 20
 
       - name: Setup Rust
-        uses: dtolnay/rust-action/setup@v1
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Install frontend deps
         run: npm install
-
-      - name: Install Rust target
-        run: rustup target add x86_64-pc-windows-msvc
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
@@ -38,4 +35,3 @@ jobs:
           releaseBody: 'Nova versão do YTGrab'
           releaseDraft: false
           prerelease: true
-          args: '--target x86_64-pc-windows-msvc'
