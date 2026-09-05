@@ -64,8 +64,6 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
           echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> $GITHUB_ENV
-          ls -la $ANDROID_HOME
-          ls -la $ANDROID_HOME/ndk/
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -80,27 +78,38 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Find APK files
+      - name: Rename and release APK
         run: |
-          echo "Searching for APK files..."
-          find src-tauri/gen/android -name "*.apk" -type f || echo "No APK found with find"
-          ls -la src-tauri/gen/android/app/build/outputs/apk/ 2>/dev/null || echo "No apk dir"
+          # Find the APK
+          APK_PATH=$(find src-tauri/gen/android -name "*.apk" -type f | head -1)
+          if [ -z "$APK_PATH" ]; then
+            echo "No APK found!"
+            exit 1
+          fi
+          echo "Found APK: $APK_PATH"
+          
+          # Read version from tauri.conf.json
+          VERSION=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*"version": *"//;s/".*//')
+          echo "Version: $VERSION"
+          
+          # Rename APK
+          NEW_NAME="YTGrab_${VERSION}_android.apk"
+          cp "$APK_PATH" "$NEW_NAME"
+          echo "Renamed to: $NEW_NAME"
+          echo "APK_FILE=$NEW_NAME" >> $GITHUB_ENV
+          echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
 
-      - name: Upload APK
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: ytgrab-android
-          path: |
-            src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
-            src-tauri/gen/android/app/build/outputs/apk/release/*.apk
+          path: YTGrab_*.apk
 
       - name: Release APK
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v__VERSION__
-          files: |
-            src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
-            src-tauri/gen/android/app/build/outputs/apk/release/*.apk
+          tag_name: v${{ env.APP_VERSION }}
+          files: YTGrab_*.apk
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
