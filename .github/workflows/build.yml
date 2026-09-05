@@ -1,0 +1,41 @@
+name: Build YTGrab
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action/setup@v1
+
+      - name: Install frontend deps
+        run: npm install
+
+      - name: Install Rust target
+        run: rustup target add x86_64-pc-windows-msvc
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: 'YTGrab v__VERSION__'
+          releaseBody: 'Nova versão do YTGrab'
+          releaseDraft: false
+          prerelease: true
+          args: '--target x86_64-pc-windows-msvc'
