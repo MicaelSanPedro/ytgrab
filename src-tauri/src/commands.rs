@@ -115,24 +115,37 @@ pub async fn install_ytdlp() -> Result<String, String> {
         return Ok("yt-dlp já está instalado.".to_string());
     }
 
-    // Download latest yt-dlp.exe from GitHub
-    let url = if cfg!(target_os = "windows") {
-        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+    if cfg!(target_os = "windows") {
+        // Windows: download yt-dlp.exe standalone binary
+        let url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+        let response = reqwest::get(url).await.map_err(|e| format!("Erro ao baixar yt-dlp: {}", e))?;
+        if !response.status().is_success() {
+            return Err(format!("Erro HTTP ao baixar yt-dlp: {}", response.status()));
+        }
+        let bytes = response.bytes().await.map_err(|e| format!("Erro ao ler dados: {}", e))?;
+        std::fs::write(&ytdlp_path, &bytes).map_err(|e| format!("Erro ao salvar yt-dlp: {}", e))?;
+        Ok(format!("yt-dlp instalado em: {}", ytdlp_path.display()))
     } else {
-        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
-    };
+        // Linux/Android: download the yt-dlp Python script and make it executable
+        // On Android, this requires Python to be available (e.g. via Termux)
+        let url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp";
+        let response = reqwest::get(url).await.map_err(|e| format!("Erro ao baixar yt-dlp: {}", e))?;
+        if !response.status().is_success() {
+            return Err(format!("Erro HTTP ao baixar yt-dlp: {}", response.status()));
+        }
+        let bytes = response.bytes().await.map_err(|e| format!("Erro ao ler dados: {}", e))?;
+        std::fs::write(&ytdlp_path, &bytes).map_err(|e| format!("Erro ao salvar yt-dlp: {}", e))?;
 
-    let response = reqwest::get(url).await.map_err(|e| format!("Erro ao baixar yt-dlp: {}", e))?;
+        // Make executable on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(&ytdlp_path, perms).map_err(|e| format!("Erro ao definir permissões: {}", e))?;
+        }
 
-    if !response.status().is_success() {
-        return Err(format!("Erro HTTP ao baixar yt-dlp: {}", response.status()));
+        Ok(format!("yt-dlp instalado em: {}", ytdlp_path.display()))
     }
-
-    let bytes = response.bytes().await.map_err(|e| format!("Erro ao ler dados: {}", e))?;
-
-    std::fs::write(&ytdlp_path, &bytes).map_err(|e| format!("Erro ao salvar yt-dlp: {}", e))?;
-
-    Ok(format!("yt-dlp instalado em: {}", ytdlp_path.display()))
 }
 
 /// Install ffmpeg by downloading from GitHub (gyan.dev builds for Windows)
