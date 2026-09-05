@@ -80,17 +80,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Find APK files
+        run: |
+          echo "Searching for APK files..."
+          find src-tauri/gen/android -name "*.apk" -type f || echo "No APK found with find"
+          ls -la src-tauri/gen/android/app/build/outputs/apk/ 2>/dev/null || echo "No apk dir"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ytgrab-android
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          path: |
+            src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
+            src-tauri/gen/android/app/build/outputs/apk/release/*.apk
 
       - name: Release APK
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.1.0
-          files: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          tag_name: v__VERSION__
+          files: |
+            src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk
+            src-tauri/gen/android/app/build/outputs/apk/release/*.apk
           prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
