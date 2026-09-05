@@ -60,22 +60,32 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK components
+      - name: Install Android NDK and tools
         run: |
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
+          yes | sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;26.1.10909125"
 
       - name: Install frontend deps
         run: npm install
 
-      - name: Build Tauri app (Android)
-        uses: tauri-apps/tauri-action@v0
+      - name: Build Android APK
+        run: |
+          export ANDROID_HOME=$HOME/Library/Android/sdk
+          npx tauri android build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANDROID_HOME: /usr/local/lib/android/sdk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
-          tagName: v__VERSION__
-          releaseName: 'YTGrab v__VERSION__'
-          releaseBody: 'Nova versão do YTGrab - APK para Android'
-          releaseDraft: false
+          name: ytgrab-android
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+
+      - name: Release APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.1.0
+          files: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           prerelease: true
-          args: '--target aarch64-linux-android'
-          bundler: 'apk'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
