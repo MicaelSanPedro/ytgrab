@@ -258,16 +258,22 @@ fn resolve_closure(
 
 /// Extract the compressed tar member (`data.tar.xz` / `data.tar.gz`) from a
 /// `.deb` (ar) image. Returns `(compression, tar-bytes)`.
+/// GNU `ar` stores member names in a 16-byte field, space-padded and usually
+/// terminated with `/` (`data.tar.xz/` rather than `data.tar.xz`). Without
+/// stripping that slash the compression suffix becomes `"xz/"` and unpacking
+/// fails with "compressão não suportada".
+fn ar_member_name(header: &[u8]) -> String {
+    let raw = std::str::from_utf8(&header[0..16]).unwrap_or("").trim();
+    raw.trim_end_matches('/').trim().to_string()
+}
+
 fn deb_data_tar(bytes: &[u8]) -> Result<(String, Vec<u8>), String> {
     if bytes.len() < 8 || &bytes[0..8] != b"!<arch>\n" {
         return Err("arquivo .deb inválido (magic não reconhecido)".into());
     }
     let mut off = 8usize;
     while off + 60 <= bytes.len() {
-        let name = std::str::from_utf8(&bytes[off..off + 16])
-            .unwrap_or("")
-            .trim()
-            .to_string();
+        let name = ar_member_name(&bytes[off..off + 60]);
         let size_str = std::str::from_utf8(&bytes[off + 48..off + 58])
             .unwrap_or("0")
             .trim();
@@ -278,12 +284,16 @@ fn deb_data_tar(bytes: &[u8]) -> Result<(String, Vec<u8>), String> {
         if off + size > bytes.len() {
             return Err("arquivo .deb truncado".into());
         }
-        if name.starts_with("data.tar.") {
-            let fmt = name
-                .rsplit('.')
-                .next()
-                .unwrap_or("")
-                .to_ascii_lowercase();
+        if name.starts_with("data.tar.") || name == "data.tar" {
+            let fmt = if name == "data.tar" {
+                "tar".to_string()
+            } else {
+                name.rsplit('.')
+                    .next()
+                    .unwrap_or("")
+                    .trim_end_matches('/')
+                    .to_ascii_lowercase()
+            };
             let data = bytes[off..off + size].to_vec();
             return Ok((fmt, data));
         }
@@ -310,6 +320,7 @@ fn unpack_tar_into(data: &[u8], fmt: &str, dest: &Path) -> Result<(), String> {
                 .map_err(|e| format!("falha ao descomprimir xz: {e}"))?;
             buf
         }
+        "tar" | "" => data.to_vec(),
         other => {
             return Err(format!(
                 "compressão '{other}' do .deb não suportada (esperado xz ou gz)"
@@ -582,4 +593,54 @@ pub async fn run(app: tauri::AppHandle) -> Result<String, String> {
 
     emit(&app, "done", 100.0, "Tudo pronto!");
     Ok("Dependências instaladas automaticamente!".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ar_header(name: &str, size: usize) -> Vec<u8> {
+        let mut h = vec![b' '; 60];
+        let name_bytes = name.as_bytes();
+        h[..name_bytes.len()].copy_from_slice(name_bytes);
+        let size_s = size.to_string();
+        let size_b = size_s.as_bytes();
+        h[48..48 + size_b.len()].copy_from_slice(size_b);
+        h[58] = b'`';
+        h[59] = b'\n';
+        h
+    }
+
+    fn make_ar(members: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut out = b"!<arch>\n".to_vec();
+        for (name, data) in members {
+            out.extend_from_slice(&ar_header(name, data.len()));
+            out.extend_from_slice(data);
+            if data.len() % 2 == 1 {
+                out.push(b'\n');
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn deb_data_tar_strips_gnu_ar_trailing_slash() {
+        let payload = b"not-really-xz-but-ok";
+        let bytes = make_ar(&[
+            ("debian-binary/", b"2.0\n"),
+            ("data.tar.xz/", payload),
+        ]);
+        let (fmt, data) = deb_data_tar(&bytes).expect("parse");
+        assert_eq!(fmt, "xz");
+        assert_eq!(data, payload);
+    }
+
+    #[test]
+    fn deb_data_tar_accepts_name_without_slash() {
+        let payload = b"gzip-payload";
+        let bytes = make_ar(&[("data.tar.gz", payload)]);
+        let (fmt, data) = deb_data_tar(&bytes).expect("parse");
+        assert_eq!(fmt, "gz");
+        assert_eq!(data, payload);
+    }
 }
