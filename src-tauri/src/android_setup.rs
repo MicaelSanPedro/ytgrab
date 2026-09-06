@@ -256,7 +256,7 @@ fn resolve_closure(
 /// (capped, so the text stays readable in the UI overlay).
 fn bin_listing(dir: &Path) -> String {
     let mut names: Vec<String> = std::fs::read_dir(dir)
-        .map(|mut it| {
+        .map(|it| {
             it.flatten()
                 .filter_map(|e| e.file_name().to_str().map(String::from))
                 .collect()
@@ -505,7 +505,8 @@ pub async fn run(app: tauri::AppHandle) -> Result<String, String> {
                 let mut has = false;
                 if let Ok(entries) = std::fs::read_dir(&pybin) {
                     for entry in entries.flatten() {
-                        let Some(n) = entry.file_name().to_str() else { continue };
+                        let file_name = entry.file_name();
+                        let Some(n) = file_name.to_str() else { continue };
                         if n == "python3" || (n.starts_with("python3.") && pybin.join(n).is_file())
                         {
                             has = true;
