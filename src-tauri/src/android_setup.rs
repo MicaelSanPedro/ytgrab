@@ -18,9 +18,10 @@
 //! ```
 
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, Cursor, Read};
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use tauri::Emitter;
+use tauri::Manager;
 
 const TERMUX_BASE: &str = "https://packages.termux.dev/apt/termux-main";
 const PACKAGES_INDEX: &str =
@@ -222,7 +223,7 @@ fn resolve_closure(
 
     missing.retain(|m| !closure.contains(m));
     if !missing.is_empty() {
-        let list: Vec<&String> = missing.iter().collect();
+        let list: Vec<String> = missing.iter().cloned().collect();
         eprintln!("aviso: dependências não encontradas no índice: {}", list.join(", "));
     }
 
@@ -303,7 +304,7 @@ fn unpack_tar_into(data: &[u8], fmt: &str, dest: &Path) -> Result<(), String> {
             buf
         }
         "xz" => {
-            let mut dec = xz2::XzDecoder::new(&data[..]);
+            let mut dec = xz2::read::XzDecoder::new(&data[..]);
             let mut buf = Vec::new();
             dec.read_to_end(&mut buf)
                 .map_err(|e| format!("falha ao descomprimir xz: {e}"))?;
