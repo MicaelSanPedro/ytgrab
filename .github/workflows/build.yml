@@ -2,7 +2,7 @@ name: Build YTGrab
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'arena/01a07454-ytgrab']
   workflow_dispatch:
 
 permissions:
@@ -24,6 +24,24 @@ jobs:
 
       - name: Install frontend deps
         run: npm ci
+
+      - name: Download bundled dependencies (yt-dlp + ffmpeg)
+        shell: pwsh
+        run: |
+          $bin = Join-Path $PWD "src-tauri\bin"
+          New-Item -ItemType Directory -Force -Path $bin | Out-Null
+          Write-Host ">> yt-dlp.exe"
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile (Join-Path $bin "yt-dlp.exe") -UseBasicParsing
+          Write-Host ">> ffmpeg (essentials, gyan.dev)"
+          $zip = Join-Path $PWD "ffmpeg-essentials.zip"
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile $zip -UseBasicParsing
+          $ext = Join-Path $PWD "ffmpeg-extract"
+          Expand-Archive -Path $zip -DestinationPath $ext -Force
+          $ff = Get-ChildItem -Path $ext -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1
+          if (-not $ff) { throw "ffmpeg.exe não encontrado no zip do gyan.dev" }
+          Copy-Item -Path $ff.FullName -Destination (Join-Path $bin "ffmpeg.exe") -Force
+          Remove-Item -Path $zip, $ext -Recurse -Force
+          Get-ChildItem $bin | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length/1MB) }
 
       - name: Build Tauri app (Windows)
         uses: tauri-apps/tauri-action@v0
@@ -69,13 +87,24 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          targets: aarch64-linux-android
 
       - name: Install frontend deps
         run: npm ci
 
-      - name: Build Android APK
-        run: npx tauri android build --apk
+      - name: Sanity check (Termux index + runtime closure)
+        run: |
+          set -e
+          # The app downloads this exact runtime on first use; fail fast if the
+          # repository layout or the closure changes under us.
+          curl -fL --retry 3 "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages.gz" -o /tmp/Packages.gz
+          gunzip -c /tmp/Packages.gz > /tmp/Packages
+          python3 ci/termux_closure.py /tmp/Packages python ffmpeg > /tmp/closure.txt
+          echo "Pacotes baixados pelo app no 1º uso ($(wc -l < /tmp/closure.txt)):"
+          cat /tmp/closure.txt
+
+      - name: Build Android APK (arm64)
+        run: npx tauri android build --apk --target aarch64-linux-android
 
       - name: Sign APK
         run: |
