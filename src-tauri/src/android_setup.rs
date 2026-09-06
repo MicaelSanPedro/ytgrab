@@ -443,7 +443,7 @@ pub async fn run(app: tauri::AppHandle) -> Result<String, String> {
         );
         let url = format!("{TERMUX_BASE}/{filename}");
         let bytes = client
-            .get(&url)
+            .get(url.as_str())
             .send()
             .await
             .map_err(|e| format!("Falha ao baixar {name}: {e}"))?

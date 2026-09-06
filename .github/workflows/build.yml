@@ -104,7 +104,26 @@ jobs:
           cat /tmp/closure.txt
 
       - name: Build Android APK (arm64)
-        run: npx tauri android build --apk --target aarch64-linux-android
+        run: |
+          rc=0
+          npx tauri android build --apk --target aarch64 > /tmp/android-build.log 2>&1 || rc=$?
+          echo "----- últimas 120 linhas do build -----"
+          tail -120 /tmp/android-build.log
+          exit $rc
+
+      - name: Report build failure on PR
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [ -f /tmp/android-build.log ] || exit 0
+          {
+            echo "### 🔴 build-android falhou — últimas linhas do log:"
+            echo '```'
+            tail -150 /tmp/android-build.log
+            echo '```'
+          } > /tmp/pr-report.md
+          gh pr comment 1 --body-file /tmp/pr-report.md || true
 
       - name: Sign APK
         run: |
