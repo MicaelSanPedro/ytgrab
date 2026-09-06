@@ -1,7 +1,9 @@
 mod commands;
 
-/// Android: first-run automatic dependency setup (Termux python + ffmpeg).
-#[cfg(target_os = "android")]
+/// First-run automatic dependency setup (Termux python + ffmpeg) on Android.
+/// Compiled on all targets so desktop CI compile-guards it and host `cargo
+/// test` can round-trip a real .deb (see `android_setup::tests`).
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 mod android_setup;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

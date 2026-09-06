@@ -252,6 +252,28 @@ fn resolve_closure(
     Ok(result)
 }
 
+/// Compact listing of directory entries for diagnostic error messages
+/// (capped, so the text stays readable in the UI overlay).
+fn bin_listing(dir: &Path) -> String {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .map(|mut it| {
+            it.flatten()
+                .filter_map(|e| e.file_name().to_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    names.sort();
+    if names.is_empty() {
+        return "(nenhum arquivo!)".to_string();
+    }
+    let shown: Vec<&str> = names.iter().take(40).map(|n| n.as_str()).collect();
+    let mut s = shown.join(", ");
+    if names.len() > 40 {
+        s.push_str(&format!(" (+{} outros)", names.len() - 40));
+    }
+    s
+}
+
 // ---------------------------------------------------------------------------
 // .deb (ar) and tar handling
 // ---------------------------------------------------------------------------
@@ -467,6 +489,41 @@ pub async fn run(app: tauri::AppHandle) -> Result<String, String> {
         let (fmt, tar_bytes) = deb_data_tar(&bytes).map_err(|e| format!("{name}: {e}"))?;
         unpack_tar_into(&tar_bytes, &fmt, &termux)
             .map_err(|e| format!("{name}: {e}"))?;
+
+        // Per-package sanity: the two packages everything depends on must
+        // actually place their binaries in the prefix. If Termux ever changes
+        // the packaging (rename/split/transition package), fail here with a
+        // precise, reportable message instead of a generic "incompleta" later.
+        if name == "python" || name == "ffmpeg" {
+            let pybin = termux.join("usr").join("bin");
+            let expected: &str = if name == "python" {
+                "o interpretador (nenhum python3* em usr/bin)"
+            } else {
+                "o binário (usr/bin/ffmpeg ausente)"
+            };
+            let ok = if name == "python" {
+                let mut has = false;
+                if let Ok(entries) = std::fs::read_dir(&pybin) {
+                    for entry in entries.flatten() {
+                        let Some(n) = entry.file_name().to_str() else { continue };
+                        if n == "python3" || (n.starts_with("python3.") && pybin.join(n).is_file())
+                        {
+                            has = true;
+                            break;
+                        }
+                    }
+                }
+                has
+            } else {
+                pybin.join("ffmpeg").exists()
+            };
+            if !ok {
+                return Err(format!(
+                    "O pacote Termux '{name}' foi extraído, mas não trouxe {expected}. Arquivos em usr/bin: {} — envie esta mensagem.",
+                    bin_listing(&pybin)
+                ));
+            }
+        }
     }
 
     // Make sure `python3` exists (some builds only ship `python3.X`)
@@ -547,11 +604,22 @@ pub async fn run(app: tauri::AppHandle) -> Result<String, String> {
     //    loudly here, not at download time)
     emit(&app, "check", 93.0, "Verificando o runtime...");
     let ffmpeg = pybin.join("ffmpeg");
-    if !python.is_file() || !ffmpeg.is_file() || !ytdlp_path.is_file() {
-        return Err(
-            "Instalação incompleta: python3, ffmpeg ou yt-dlp não foram encontrados. Tente novamente."
-                .to_string(),
-        );
+    let mut missing: Vec<&str> = Vec::new();
+    if !python.is_file() {
+        missing.push("usr/bin/python3");
+    }
+    if !ffmpeg.is_file() {
+        missing.push("usr/bin/ffmpeg");
+    }
+    if !ytdlp_path.is_file() {
+        missing.push("bin/yt-dlp");
+    }
+    if !missing.is_empty() {
+        return Err(format!(
+            "Instalação incompleta: {} não encontrado(s) após extrair os pacotes. Conteúdo de usr/bin: {} — envie esta mensagem.",
+            missing.join(", "),
+            bin_listing(&pybin)
+        ));
     }
     let tmp = root.join("tmp");
     std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
@@ -642,5 +710,34 @@ mod tests {
         let (fmt, data) = deb_data_tar(&bytes).expect("parse");
         assert_eq!(fmt, "gz");
         assert_eq!(data, payload);
+    }
+
+    /// Round-trip against a REAL Termux .deb. CI downloads one from the current
+    /// index (via the `DEB_FIXTURE` env var) so that changes in the repo
+    /// (member names, compression) break the build instead of the first run
+    /// on a real device. Skipped when `DEB_FIXTURE` is not set.
+    #[test]
+    fn real_termux_deb_parses_and_unpacks() {
+        let Some(path) = std::env::var("DEB_FIXTURE").ok() else {
+            eprintln!("(teste ignorado: DEB_FIXTURE não definido)");
+            return;
+        };
+        let bytes = std::fs::read(&path).expect("ler o .deb de teste");
+        let (fmt, tar_bytes) = deb_data_tar(&bytes).expect("parse do ar no .deb real");
+        assert!(
+            matches!(fmt.as_str(), "xz" | "gz"),
+            "compressão inesperada no .deb real: {fmt}"
+        );
+        let dest = std::env::temp_dir().join(format!(
+            "ytgrab-deb-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dest).expect("criar dir de teste");
+        unpack_tar_into(&tar_bytes, &fmt, &dest).expect("extrair data.tar do .deb real");
+        let entries = std::fs::read_dir(&dest)
+            .expect("ler dir de teste")
+            .count();
+        assert!(entries > 0, "extração vazia");
+        let _ = std::fs::remove_dir_all(&dest);
     }
 }

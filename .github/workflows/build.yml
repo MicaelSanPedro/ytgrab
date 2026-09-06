@@ -71,6 +71,11 @@ jobs:
         with:
           targets: aarch64-linux-android
 
+      - name: Install Linux system deps (tauri host build for cargo test)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev
+
       - name: cargo check (aarch64-linux-android)
         working-directory: src-tauri
         run: |
@@ -95,6 +100,44 @@ jobs:
           tail -40 /tmp/android-check.log
           exit $rc
 
+      - name: Test real Termux .deb (host cargo test)
+        working-directory: src-tauri
+        run: |
+          curl -fL --retry 3 "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages.gz" -o /tmp/Packages.gz
+          gunzip -c /tmp/Packages.gz > /tmp/Packages
+          FN=$(python3 - <<'PY'
+          import re
+          txt = open('/tmp/Packages', encoding='utf-8').read()
+          pick = None
+          for s in txt.split('Package: ')[1:]:
+              name = s.split('\n', 1)[0].strip()
+              if name == 'brotli':
+                  m = re.search(r'Filename: (\S+)', s)
+                  if m:
+                      pick = m.group(1)
+                      break
+          if not pick:
+              m = re.search(r'Filename: (\S+\.deb)', txt)
+              pick = m.group(1) if m else None
+          assert pick, 'nenhum Filename no índice'
+          print(pick)
+          PY
+          )
+          echo "Fixture: $FN"
+          curl -fL --retry 3 "https://packages.termux.dev/apt/termux-main/$FN" -o /tmp/fixture.deb
+          ls -la /tmp/fixture.deb
+          rc=0
+          DEB_FIXTURE=/tmp/fixture.deb cargo test --lib > /tmp/android-debtest.log 2>&1 || rc=$?
+          tail -40 /tmp/android-debtest.log
+          exit $rc
+
+      - name: Verify real python+ffmpeg .deb contents (layout guard)
+        run: |
+          rc=0
+          python3 ci/termux_deb_check.py > /tmp/android-debcheck.log 2>&1 || rc=$?
+          tail -40 /tmp/android-debcheck.log
+          exit $rc
+
       - name: Report check failure (draft release with log)
         if: failure()
         env:
@@ -111,6 +154,20 @@ jobs:
             echo '```'
             tail -300 /tmp/android-check.log
             echo '```'
+            if [ -f /tmp/android-debtest.log ]; then
+              echo ""
+              echo "Últimas 120 linhas do cargo test (.deb real):"
+              echo '```'
+              tail -120 /tmp/android-debtest.log
+              echo '```'
+            fi
+            if [ -f /tmp/android-debcheck.log ]; then
+              echo ""
+              echo "Guard de layout dos debs (python/ffmpeg):"
+              echo '```'
+              tail -80 /tmp/android-debcheck.log
+              echo '```'
+            fi
           } > /tmp/fail-notes.md
           if gh release view ci-android-check-failure --json id >/dev/null 2>&1; then
             gh release edit ci-android-check-failure --draft --title "CI Android check failure (auto)" --notes-file /tmp/fail-notes.md
