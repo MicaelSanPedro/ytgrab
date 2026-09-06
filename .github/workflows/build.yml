@@ -54,9 +54,57 @@ jobs:
           releaseDraft: false
           prerelease: false
 
+  android-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK (for C build scripts)
+        run: |
+          yes | sdkmanager "ndk;29.0.13846066"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: cargo check (aarch64-linux-android)
+        working-directory: src-tauri
+        run: |
+          export NDK_HOME="$ANDROID_HOME/ndk/29.0.13846066"
+          export CC_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang"
+          export AR_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          rc=0
+          cargo check --target aarch64-linux-android > /tmp/android-check.log 2>&1 || rc=$?
+          echo "----- últimas 40 linhas do cargo check -----"
+          tail -40 /tmp/android-check.log
+          exit $rc
+
+      - name: Report check failure (draft release with log)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "_`cargo check --target aarch64-linux-android` falhou — últimas 300 linhas (run \`${GITHUB_RUN_ID}\`):_"
+            echo ""
+            echo '```'
+            tail -300 /tmp/android-check.log
+            echo '```'
+          } > /tmp/fail-notes.md
+          if gh release view ci-android-check-failure --json id >/dev/null 2>&1; then
+            gh release edit ci-android-check-failure --draft --title "CI Android check failure (auto)" --notes-file /tmp/fail-notes.md
+          else
+            gh release create ci-android-check-failure 0.0.0-ci --draft --target main --title "CI Android check failure (auto)" --notes-file /tmp/fail-notes.md
+          fi
+          || echo "nao consegui publicar o relatorio"
+
   build-android:
     runs-on: ubuntu-latest
-    needs: build-windows
+    needs: [build-windows, android-check]
     steps:
       - uses: actions/checkout@v4
 
@@ -119,6 +167,28 @@ jobs:
           path: /tmp/android-build.log
           if-no-files-found: ignore
           retention-days: 3
+
+      - name: Report build failure (draft release with log)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [ -f /tmp/android-build.log ] || exit 0
+          {
+            echo "_Log de falha do build Android (arm64) — atualizado automaticamente pelo CI._"
+            echo ""
+            echo "Run: \`${GITHUB_RUN_ID}\`"
+            echo ""
+            echo '```'
+            tail -400 /tmp/android-build.log
+            echo '```'
+          } > /tmp/fail-notes.md
+          if gh release view ci-android-failure --json id >/dev/null 2>&1; then
+            gh release edit ci-android-failure --draft --title "CI Android failure (auto)" --notes-file /tmp/fail-notes.md
+          else
+            gh release create ci-android-failure 0.0.0-ci --draft --target main --title "CI Android failure (auto)" --notes-file /tmp/fail-notes.md
+          fi
+          || echo "nao consegui publicar o relatorio"
 
       - name: Sign APK
         run: |
