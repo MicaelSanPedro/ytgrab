@@ -490,19 +490,19 @@ pub async fn run(app: tauri::AppHandle) -> Result<String, String> {
         unpack_tar_into(&tar_bytes, &fmt, &termux)
             .map_err(|e| format!("{name}: {e}"))?;
 
-        // Per-package sanity: ffmpeg must place its binary; python is a bit
-        // more subtle because the `python` package in Termux is now a
-        // metapackage that depends on the real interpreter (e.g. python3.14).
-        // For ffmpeg we fail fast with a precise message; for python we only
-        // warn here and let the final verification (which also handles the
-        // python3 -> python3.X symlink dance) decide.
+        // Per-package sanity: both `python` and `ffmpeg` have become
+        // metapackages or have moved their binaries in the past (Termux 3.14
+        // transition). For now we only warn here and let the final
+        // verification (which also handles the python3 -> python3.X symlink
+        // dance and lists usr/bin) decide. The CI guard
+        // ci/termux_deb_check.py does the strict layout check.
         if name == "ffmpeg" {
             let pybin = termux.join("usr").join("bin");
             if !pybin.join("ffmpeg").exists() {
-                return Err(format!(
-                    "O pacote Termux '{name}' foi extraído, mas não trouxe o binário (usr/bin/ffmpeg ausente). Arquivos em usr/bin: {} — envie esta mensagem.",
+                eprintln!(
+                    "aviso: pacote 'ffmpeg' extraído mas ainda sem ffmpeg em usr/bin (metapacote? aguardando dependências): {}",
                     bin_listing(&pybin)
-                ));
+                );
             }
         } else if name == "python" {
             let pybin = termux.join("usr").join("bin");
