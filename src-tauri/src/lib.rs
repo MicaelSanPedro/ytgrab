@@ -1,5 +1,9 @@
 mod commands;
 
+/// Android: first-run automatic dependency setup (Termux python + ffmpeg).
+#[cfg(target_os = "android")]
+mod android_setup;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -11,6 +15,8 @@ pub fn run() {
             commands::install_ytdlp,
             commands::install_ffmpeg,
             commands::check_dependencies,
+            commands::setup_dependencies,
+            commands::get_platform,
             commands::get_ytdlp_install_info,
             commands::get_video_info,
             commands::get_default_download_dir,
