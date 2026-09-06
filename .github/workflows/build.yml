@@ -2,7 +2,7 @@ name: Build YTGrab
 
 on:
   push:
-    branches: [main, 'arena/01a07454-ytgrab']
+    branches: [main]
   workflow_dispatch:
 
 permissions:
