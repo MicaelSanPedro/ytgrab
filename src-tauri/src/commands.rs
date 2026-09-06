@@ -100,7 +100,7 @@ fn find_ytdlp(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         // for display purposes; the actual process is `python3 <script>`.
         return Ok(script);
     }
-    Err("yt-dlp não encontrado. As dependências embutidas não foram extraídas. Reinstale o aplicativo.".to_string())
+    Err("yt-dlp não encontrado. As dependências ainda não foram instaladas no aparelho.".to_string())
 }
 
 #[cfg(not(target_os = "android"))]
@@ -202,7 +202,7 @@ fn ytdlp_base_command(app: &tauri::AppHandle) -> Result<Command, String> {
     let prefix = android_deps::prefix(&root);
 
     if !python.is_file() || !script.is_file() {
-        return Err("yt-dlp não encontrado. As dependências embutidas não foram extraídas.".to_string());
+        return Err("yt-dlp não encontrado. As dependências ainda não foram instaladas no aparelho.".to_string());
     }
 
     let mut cmd = Command::new(&python);
