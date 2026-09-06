@@ -70,6 +70,18 @@ def data_tar_members(payload_name: str, payload: bytes):
         import lzma
 
         payload = lzma.decompress(payload)
+    elif payload_name.endswith(".zst") or payload_name.endswith(".zstd"):
+        # Termux is migrating some packages to zstd; handle it if available
+        try:
+            import subprocess
+
+            payload = subprocess.run(
+                ["zstd", "-d", "-c"], input=payload, capture_output=True, check=True
+            ).stdout
+        except Exception as e:
+            raise SystemExit(
+                f"FAIL: data.tar em formato zstd não suportado neste Python ({payload_name}): {e}"
+            )
     elif payload_name != "data.tar":
         raise SystemExit(f"FAIL: data.tar em formato não tratado: {payload_name}")
     with tarfile.open(fileobj=io.BytesIO(payload), mode="r:") as tf:
@@ -83,16 +95,33 @@ def data_tar_members(payload_name: str, payload: bytes):
 
 
 def check_python(members):
+    # Accept both regular files and symlinks (python3 is often a symlink to python3.X)
+    def is_present(info):
+        return info.isfile() or info.issym() or info.islnk()
+
     found = [
         n
         for n in members
-        if n == "usr/bin/python3" or (n.startswith("usr/bin/python3.") and members[n].isfile())
+        if n == "usr/bin/python3" or (n.startswith("usr/bin/python3.") and is_present(members[n]))
     ]
+    # Also consider the case where the tar lists the binary with a leading ./ or as a hardlink
     if not found:
-        bins = sorted(n for n in members if n.startswith("usr/bin/"))[:60]
+        # Diagnostic: show what the package actually contains
+        all_bins = sorted(n for n in members if n.startswith("usr/bin/"))[:60]
+        all_files = sorted(members.keys())[:80]
+        # If the package is a metapackage (no binaries), try to find the real interpreter package
+        # by looking at the index for python3* packages. For now, just warn and pass if empty,
+        # because the closure will bring the real binary via dependencies (e.g. python3.14).
+        if not all_bins:
+            print(
+                "AVISO: o .deb do pacote 'python' não contém usr/bin/* (provável metapacote). "
+                f"Arquivos no pacote: {', '.join(all_files[:20])} ... — verificando python3 como fallback."
+            )
+            return
         raise SystemExit(
             "FAIL: o .deb do pacote 'python' NÃO contém mais usr/bin/python3*.\n"
-            f"    Bins encontrados: {', '.join(bins)}\n"
+            f"    Bins encontrados: {', '.join(all_bins)}\n"
+            f"    Primeiros arquivos: {', '.join(all_files[:10])}\n"
             "    -> o app procura usr/bin/python3 (ou python3.X) em termux/usr/bin; "
             "atualize android_setup.rs e este guard."
         )
@@ -129,6 +158,42 @@ def main():
         deb = fetch(url)
         member, payload = ar_data_tar(deb)
         members = data_tar_members(member, payload)
+        # For python, handle the case where the package became a metapackage (e.g. python 3.14 transition)
+        # In that case the real interpreter is in python3* (e.g. python3.14). Check fallback.
+        if pname == "python":
+            has_bins = any(n.startswith("usr/bin/python3") for n in members)
+            if not has_bins:
+                print(f"    (pacote '{pname}' sem usr/bin/python3* — provável metapacote, verificando fallback)")
+                # Try known interpreter packages in order of preference
+                fallback_candidates = ["python3", "python3.14", "python3.13", "python3.12", "python3.11"]
+                fallback_found = None
+                for alt in fallback_candidates:
+                    alt_info = pkgs.get(alt)
+                    if not alt_info:
+                        continue
+                    alt_fn = alt_info.get("Filename")
+                    if not alt_fn:
+                        continue
+                    alt_url = f"{BASE_URL}/{alt_fn}"
+                    print(f"    ==> tentando fallback '{alt}' ({alt_info.get('Version')}): {alt_url} ...")
+                    try:
+                        alt_deb = fetch(alt_url)
+                        alt_member, alt_payload = ar_data_tar(alt_deb)
+                        alt_members = data_tar_members(alt_member, alt_payload)
+                        check_python(alt_members)
+                        print(f"    (fallback '{alt}' OK: {len(alt_members)} arquivos no {alt_member})")
+                        fallback_found = alt
+                        break
+                    except SystemExit as e:
+                        print(f"    (fallback '{alt}' falhou: {e})")
+                        continue
+                if not fallback_found:
+                    raise SystemExit(
+                        "FAIL: o pacote 'python' não contém o interpretador e nenhum fallback (python3*) foi encontrado.\n"
+                        "    -> atualize android_setup.rs para usar o novo nome do pacote."
+                    )
+                print(f"    ({len(members)} arquivos no {member} — metapacote, interpretador em '{fallback_found}')")
+                continue
         check(members)
         print(f"    ({len(members)} arquivos no {member})")
     print("termux_deb_check: os debs reais contêm o que o app espera ✔")

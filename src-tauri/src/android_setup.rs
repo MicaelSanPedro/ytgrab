@@ -490,39 +490,38 @@ pub async fn run(app: tauri::AppHandle) -> Result<String, String> {
         unpack_tar_into(&tar_bytes, &fmt, &termux)
             .map_err(|e| format!("{name}: {e}"))?;
 
-        // Per-package sanity: the two packages everything depends on must
-        // actually place their binaries in the prefix. If Termux ever changes
-        // the packaging (rename/split/transition package), fail here with a
-        // precise, reportable message instead of a generic "incompleta" later.
-        if name == "python" || name == "ffmpeg" {
+        // Per-package sanity: ffmpeg must place its binary; python is a bit
+        // more subtle because the `python` package in Termux is now a
+        // metapackage that depends on the real interpreter (e.g. python3.14).
+        // For ffmpeg we fail fast with a precise message; for python we only
+        // warn here and let the final verification (which also handles the
+        // python3 -> python3.X symlink dance) decide.
+        if name == "ffmpeg" {
             let pybin = termux.join("usr").join("bin");
-            let expected: &str = if name == "python" {
-                "o interpretador (nenhum python3* em usr/bin)"
-            } else {
-                "o binário (usr/bin/ffmpeg ausente)"
-            };
-            let ok = if name == "python" {
-                let mut has = false;
-                if let Ok(entries) = std::fs::read_dir(&pybin) {
-                    for entry in entries.flatten() {
-                        let file_name = entry.file_name();
-                        let Some(n) = file_name.to_str() else { continue };
-                        if n == "python3" || (n.starts_with("python3.") && pybin.join(n).is_file())
-                        {
-                            has = true;
-                            break;
-                        }
-                    }
-                }
-                has
-            } else {
-                pybin.join("ffmpeg").exists()
-            };
-            if !ok {
+            if !pybin.join("ffmpeg").exists() {
                 return Err(format!(
-                    "O pacote Termux '{name}' foi extraído, mas não trouxe {expected}. Arquivos em usr/bin: {} — envie esta mensagem.",
+                    "O pacote Termux '{name}' foi extraído, mas não trouxe o binário (usr/bin/ffmpeg ausente). Arquivos em usr/bin: {} — envie esta mensagem.",
                     bin_listing(&pybin)
                 ));
+            }
+        } else if name == "python" {
+            let pybin = termux.join("usr").join("bin");
+            let mut has = false;
+            if let Ok(entries) = std::fs::read_dir(&pybin) {
+                for entry in entries.flatten() {
+                    let file_name = entry.file_name();
+                    let Some(n) = file_name.to_str() else { continue };
+                    if n == "python3" || (n.starts_with("python3.") && pybin.join(n).is_file()) {
+                        has = true;
+                        break;
+                    }
+                }
+            }
+            if !has {
+                eprintln!(
+                    "aviso: pacote 'python' extraído mas ainda sem python3* em usr/bin (metapacote? aguardando dependências): {}",
+                    bin_listing(&pybin)
+                );
             }
         }
     }
