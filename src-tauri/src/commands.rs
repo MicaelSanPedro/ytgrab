@@ -30,32 +30,98 @@ fn get_app_dir() -> Result<PathBuf, String> {
 
 /// Get the yt-dlp binary name for the current platform
 #[cfg(target_os = "windows")]
-fn ytdlp_bin_name() -> &'static str { "yt-dlp.exe" }
+fn ytdlp_bin_name() -> &'static str {
+    "yt-dlp.exe"
+}
 #[cfg(not(target_os = "windows"))]
-fn ytdlp_bin_name() -> &'static str { "yt-dlp" }
+fn ytdlp_bin_name() -> &'static str {
+    "yt-dlp"
+}
 
 /// Get the ffmpeg binary name for the current platform
 #[cfg(target_os = "windows")]
-fn ffmpeg_bin_name() -> &'static str { "ffmpeg.exe" }
+fn ffmpeg_bin_name() -> &'static str {
+    "ffmpeg.exe"
+}
 #[cfg(not(target_os = "windows"))]
-fn ffmpeg_bin_name() -> &'static str { "ffmpeg" }
+fn ffmpeg_bin_name() -> &'static str {
+    "ffmpeg"
+}
 
-/// Find yt-dlp executable - check app dir first, then PATH
-fn find_ytdlp() -> Result<PathBuf, String> {
-    let app_dir = get_app_dir()?;
+// ---------------------------------------------------------------------------
+// Android: first-run dependencies (Termux-style prefix)
+//
+// On first use the app downloads a Termux aarch64 runtime (python3 + ffmpeg
+// + shared libraries + the yt-dlp script) into `<dataDir>/ytgrab-deps/bin`
+// (see `android_setup.rs`), which lives right under the directory
+// `AppHandle::path().app_data_dir()` resolves to.
+// ---------------------------------------------------------------------------
+#[cfg(target_os = "android")]
+mod android_deps {
+    use super::*;
 
-    // Check app directory first
-    let local_ytdlp = app_dir.join(ytdlp_bin_name());
-    if local_ytdlp.exists() {
-        return Ok(local_ytdlp);
+    /// Root of the extracted bundled dependencies.
+    pub fn root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+        let data = app
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("Erro ao obter diretório do app: {}", e))?;
+        Ok(data.join("ytgrab-deps").join("bin"))
     }
 
-    // Also check for yt-dlp without extension (Python script)
+    /// Path to the bundled python3 interpreter.
+    pub fn python(root: &Path) -> PathBuf {
+        root.join("termux").join("usr").join("bin").join("python3")
+    }
+
+    /// Path to the bundled yt-dlp script.
+    pub fn script(root: &Path) -> PathBuf {
+        root.join("yt-dlp")
+    }
+
+    /// Path to the bundled ffmpeg binary.
+    pub fn ffmpeg(root: &Path) -> PathBuf {
+        root.join("termux").join("usr").join("bin").join("ffmpeg")
+    }
+
+    /// Prefix used by the Termux python build (PYTHONHOME).
+    pub fn prefix(root: &Path) -> PathBuf {
+        root.join("termux").join("usr")
+    }
+}
+
+#[cfg(target_os = "android")]
+fn find_ytdlp(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let root = android_deps::root(app)?;
+    let python = android_deps::python(&root);
+    let script = android_deps::script(&root);
+    if python.is_file() && script.is_file() {
+        // Return the script path: it is what identifies the "yt-dlp install"
+        // for display purposes; the actual process is `python3 <script>`.
+        return Ok(script);
+    }
+    Err("yt-dlp não encontrado. As dependências embutidas não foram extraídas. Reinstale o aplicativo.".to_string())
+}
+
+#[cfg(not(target_os = "android"))]
+fn find_ytdlp(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let app_dir = get_app_dir()?;
+
+    // Candidate directories: the app dir itself (legacy manual installs) and
+    // the `bin/` directory created by the installer when dependencies are
+    // bundled with the app.
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    candidates.push(app_dir.join(ytdlp_bin_name()));
+    candidates.push(app_dir.join("bin").join(ytdlp_bin_name()));
     #[cfg(target_os = "windows")]
     {
-        let local_ytdlp_py = app_dir.join("yt-dlp");
-        if local_ytdlp_py.exists() {
-            return Ok(local_ytdlp_py);
+        // Also check for yt-dlp without extension (Python script)
+        candidates.push(app_dir.join("yt-dlp"));
+        candidates.push(app_dir.join("bin").join("yt-dlp"));
+    }
+    for candidate in &candidates {
+        if candidate.exists() {
+            return Ok(candidate.clone());
         }
     }
 
@@ -77,14 +143,31 @@ fn find_ytdlp() -> Result<PathBuf, String> {
     Err("yt-dlp não encontrado. Clique em 'Reinstalar dependências' para instalar.".to_string())
 }
 
-/// Find ffmpeg executable - check app dir first, then PATH
-fn find_ffmpeg() -> Option<PathBuf> {
+#[cfg(target_os = "android")]
+fn find_ffmpeg(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let root = android_deps::root(app).ok()?;
+    let ffmpeg = android_deps::ffmpeg(&root);
+    if ffmpeg.is_file() {
+        Some(ffmpeg)
+    } else {
+        None
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn find_ffmpeg(_app: &tauri::AppHandle) -> Option<PathBuf> {
     let app_dir = get_app_dir().ok()?;
 
-    // Check app directory first
-    let local_ffmpeg = app_dir.join(ffmpeg_bin_name());
-    if local_ffmpeg.exists() {
-        return Some(local_ffmpeg);
+    // Candidate directories: the app dir itself (legacy manual installs) and
+    // the `bin/` directory created by the installer when dependencies are
+    // bundled with the app.
+    for candidate in [
+        app_dir.join(ffmpeg_bin_name()),
+        app_dir.join("bin").join(ffmpeg_bin_name()),
+    ] {
+        if candidate.exists() {
+            return Some(candidate);
+        }
     }
 
     // Check if ffmpeg is in PATH
@@ -103,6 +186,67 @@ fn find_ffmpeg() -> Option<PathBuf> {
     }
 
     None
+}
+
+/// Build the base process for running yt-dlp (no yt-dlp arguments yet).
+///
+/// Desktop: runs the yt-dlp binary (no console window on Windows).
+/// Android: runs the bundled python3 interpreter against the bundled yt-dlp
+/// script, with the environment the Termux prefix needs
+/// (PYTHONHOME, TMPDIR and the CA bundle for TLS).
+#[cfg(target_os = "android")]
+fn ytdlp_base_command(app: &tauri::AppHandle) -> Result<Command, String> {
+    let root = android_deps::root(app)?;
+    let python = android_deps::python(&root);
+    let script = android_deps::script(&root);
+    let prefix = android_deps::prefix(&root);
+
+    if !python.is_file() || !script.is_file() {
+        return Err("yt-dlp não encontrado. As dependências embutidas não foram extraídas.".to_string());
+    }
+
+    let mut cmd = Command::new(&python);
+    // The Termux python build looks for its standard library at its compile
+    // time prefix; PYTHONHOME redirects it to the extracted copy.
+    cmd.env("PYTHONHOME", &prefix);
+    // Make sure the dynamic linker finds the Termux shared libraries
+    // (libpython, libssl, libcrypto, ...) even if rpath is missing.
+    cmd.env("LD_LIBRARY_PATH", prefix.join("lib"));
+    // Writable temp directory inside the app's own data (never the APK path).
+    let tmp = root
+        .parent()
+        .map(|p| p.join("tmp"))
+        .unwrap_or_else(std::env::temp_dir);
+    let _ = std::fs::create_dir_all(&tmp);
+    cmd.env("TMPDIR", &tmp)
+        .env("TMP", &tmp)
+        .env("TEMP", &tmp);
+    // Termux libssl was built with a hardcoded CA path (which varies between
+    // builds); point OpenSSL at the first valid CA bundle we can find.
+    let ca_candidates = [
+        prefix.join("ssl").join("certs").join("ca-bundle.crt"),
+        prefix.join("etc").join("tls").join("cert.pem"),
+        prefix.join("etc").join("ssl").join("cert.pem"),
+    ];
+    if let Some(ca) = ca_candidates.iter().find(|c| c.is_file()) {
+        cmd.env("SSL_CERT_FILE", ca);
+    }
+    cmd.arg(&script);
+    Ok(cmd)
+}
+
+#[cfg(not(target_os = "android"))]
+fn ytdlp_base_command(app: &tauri::AppHandle) -> Result<Command, String> {
+    let ytdlp = find_ytdlp(app)?;
+    let mut cmd = Command::new(&ytdlp);
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    Ok(cmd)
 }
 
 /// Install yt-dlp by downloading from GitHub
@@ -206,28 +350,73 @@ pub async fn install_ffmpeg() -> Result<String, String> {
     }
 }
 
-/// Check if yt-dlp and ffmpeg are installed
+/// Check if yt-dlp and ffmpeg are installed (bundled or on PATH)
 #[tauri::command]
-pub async fn check_dependencies() -> Result<HashMap<String, bool>, String> {
+pub async fn check_dependencies(app: tauri::AppHandle) -> Result<HashMap<String, bool>, String> {
     let mut result = HashMap::new();
-    result.insert("ytdlp".to_string(), find_ytdlp().is_ok());
-    result.insert("ffmpeg".to_string(), find_ffmpeg().is_some());
+    result.insert("ytdlp".to_string(), find_ytdlp(&app).is_ok());
+    result.insert("ffmpeg".to_string(), find_ffmpeg(&app).is_some());
     Ok(result)
+}
+
+/// Current platform identifier ("android", "windows" or "other").
+#[tauri::command]
+pub fn get_platform() -> String {
+    if cfg!(target_os = "android") {
+        "android".to_string()
+    } else if cfg!(target_os = "windows") {
+        "windows".to_string()
+    } else {
+        "other".to_string()
+    }
+}
+
+/// Prepare the dependencies automatically.
+///
+/// Android: downloads and sets everything up on first run (Termux python +
+/// ffmpeg + yt-dlp) into the app's private storage, emitting `setup-progress`
+/// events while it works. No manual step or permission is needed.
+/// Desktop: dependencies are bundled with the installer; this only reports
+/// whether they are available.
+#[tauri::command]
+pub async fn setup_dependencies(app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        crate::android_setup::run(app).await
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        if find_ytdlp(&app).is_ok() && find_ffmpeg(&app).is_some() {
+            Ok("Dependências já estão disponíveis neste app.".to_string())
+        } else {
+            Err("Dependências ausentes. Use o painel de dependências para instalá-las.".to_string())
+        }
+    }
 }
 
 /// Get yt-dlp install info (path and version)
 #[tauri::command]
-pub async fn get_ytdlp_install_info() -> Result<HashMap<String, String>, String> {
+pub async fn get_ytdlp_install_info(app: tauri::AppHandle) -> Result<HashMap<String, String>, String> {
     let mut result = HashMap::new();
 
-    match find_ytdlp() {
+    match find_ytdlp(&app) {
         Ok(path) => {
             result.insert("path".to_string(), path.display().to_string());
-            let output = std::process::Command::new(&path).arg("--version").output();
-            match output {
-                Ok(o) => {
-                    let version = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                    result.insert("version".to_string(), version);
+            // Runs `yt-dlp --version` (or `python3 yt-dlp --version` on Android)
+            match ytdlp_base_command(&app) {
+                Ok(mut cmd) => {
+                    cmd.arg("--version")
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped());
+                    match cmd.output().await {
+                        Ok(o) => {
+                            let version = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                            result.insert("version".to_string(), version);
+                        }
+                        Err(_) => {
+                            result.insert("version".to_string(), "desconhecida".to_string());
+                        }
+                    }
                 }
                 Err(_) => {
                     result.insert("version".to_string(), "desconhecida".to_string());
@@ -240,7 +429,7 @@ pub async fn get_ytdlp_install_info() -> Result<HashMap<String, String>, String>
         }
     }
 
-    match find_ffmpeg() {
+    match find_ffmpeg(&app) {
         Some(path) => {
             result.insert("ffmpeg_path".to_string(), path.display().to_string());
             result.insert("ffmpeg_installed".to_string(), "true".to_string());
@@ -255,19 +444,11 @@ pub async fn get_ytdlp_install_info() -> Result<HashMap<String, String>, String>
 
 /// Get video info using yt-dlp
 #[tauri::command]
-pub async fn get_video_info(url: String) -> Result<VideoInfo, String> {
-    let ytdlp = find_ytdlp()?;
-
-    let mut cmd = Command::new(&ytdlp);
+pub async fn get_video_info(app: tauri::AppHandle, url: String) -> Result<VideoInfo, String> {
+    let mut cmd = ytdlp_base_command(&app)?;
     cmd.args(["--no-warnings", "-j", &url])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
 
     let output = cmd.output().await.map_err(|e| format!("Erro ao executar yt-dlp: {}", e))?;
 
@@ -297,6 +478,25 @@ pub async fn get_video_info(url: String) -> Result<VideoInfo, String> {
 }
 
 /// Get default download directory
+///
+/// Android: the app's own data directory (scoped storage).
+/// Desktop: the user's Downloads folder.
+#[cfg(target_os = "android")]
+#[tauri::command]
+pub async fn get_default_download_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Erro ao obter diretório do app: {}", e))?;
+    let download_dir = data.join("Downloads");
+    if !download_dir.exists() {
+        std::fs::create_dir_all(&download_dir)
+            .map_err(|e| format!("Erro ao criar diretório: {}", e))?;
+    }
+    Ok(download_dir.to_string_lossy().to_string())
+}
+
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 pub async fn get_default_download_dir() -> Result<String, String> {
     let home = std::env::var("USERPROFILE")
@@ -320,9 +520,7 @@ async fn run_ytdlp(
     url: &str,
     is_audio: bool,
 ) -> Result<String, String> {
-    let ytdlp = find_ytdlp()?;
-
-    let mut cmd = Command::new(&ytdlp);
+    let mut cmd = ytdlp_base_command(app)?;
 
     // Add all args
     for arg in args {
@@ -335,14 +533,8 @@ async fn run_ytdlp(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW - hide console window
-    }
-
-    // Set ffmpeg location if available in app dir
-    if let Some(ffmpeg) = find_ffmpeg() {
+    // Set ffmpeg location if available
+    if let Some(ffmpeg) = find_ffmpeg(app) {
         if let Some(ffmpeg_dir) = ffmpeg.parent() {
             cmd.arg("--ffmpeg-location").arg(ffmpeg_dir.to_string_lossy().to_string());
         }
@@ -446,11 +638,13 @@ async fn run_ytdlp(
     let status = child.wait().await.map_err(|e| format!("Erro ao aguardar processo: {}", e))?;
 
     if !status.success() {
-        return Err(if last_error.is_empty() {
-            "Download falhou com erro desconhecido.".to_string()
-        } else {
-            last_error
-        });
+        return Err(
+            if last_error.is_empty() {
+                "Download falhou com erro desconhecido.".to_string()
+            } else {
+                last_error
+            },
+        );
     }
 
     // Clean up intermediate files for audio downloads
@@ -531,7 +725,7 @@ pub async fn download(
     output_dir: String,
 ) -> Result<String, String> {
     // Validate yt-dlp exists
-    find_ytdlp()?;
+    find_ytdlp(&app)?;
 
     // Ensure output directory exists
     let out_path = Path::new(&output_dir);
@@ -552,50 +746,74 @@ pub async fn download(
         match quality.as_str() {
             "0" => vec![
                 "-x".into(),
-                "--audio-format".into(), "mp3".into(),
-                "--audio-quality".into(), "0".into(),
-                "-o".into(), output_template.clone(),
+                "--audio-format".into(),
+                "mp3".into(),
+                "--audio-quality".into(),
+                "0".into(),
+                "-o".into(),
+                output_template.clone(),
             ],
             "2" => vec![
                 "-x".into(),
-                "--audio-format".into(), "mp3".into(),
-                "--audio-quality".into(), "2".into(),
-                "-o".into(), output_template.clone(),
+                "--audio-format".into(),
+                "mp3".into(),
+                "--audio-quality".into(),
+                "2".into(),
+                "-o".into(),
+                output_template.clone(),
             ],
             _ => vec![
                 "-x".into(),
-                "--audio-format".into(), "mp3".into(),
-                "--audio-quality".into(), "0".into(),
-                "-o".into(), output_template.clone(),
+                "--audio-format".into(),
+                "mp3".into(),
+                "--audio-quality".into(),
+                "0".into(),
+                "-o".into(),
+                output_template.clone(),
             ],
         }
     } else {
         // MP4: download video with specified quality
         match quality.as_str() {
             "2160" => vec![
-                "-f".into(), "bestvideo[height<=2160]+bestaudio/best".into(),
-                "-o".into(), output_template.clone(),
-                "--merge-output-format".into(), "mp4".into(),
+                "-f".into(),
+                "bestvideo[height<=2160]+bestaudio/best".into(),
+                "-o".into(),
+                output_template.clone(),
+                "--merge-output-format".into(),
+                "mp4".into(),
             ],
             "1080" => vec![
-                "-f".into(), "bestvideo[height<=1080]+bestaudio/best".into(),
-                "-o".into(), output_template.clone(),
-                "--merge-output-format".into(), "mp4".into(),
+                "-f".into(),
+                "bestvideo[height<=1080]+bestaudio/best".into(),
+                "-o".into(),
+                output_template.clone(),
+                "--merge-output-format".into(),
+                "mp4".into(),
             ],
             "720" => vec![
-                "-f".into(), "bestvideo[height<=720]+bestaudio/best".into(),
-                "-o".into(), output_template.clone(),
-                "--merge-output-format".into(), "mp4".into(),
+                "-f".into(),
+                "bestvideo[height<=720]+bestaudio/best".into(),
+                "-o".into(),
+                output_template.clone(),
+                "--merge-output-format".into(),
+                "mp4".into(),
             ],
             "480" => vec![
-                "-f".into(), "bestvideo[height<=480]+bestaudio/best".into(),
-                "-o".into(), output_template.clone(),
-                "--merge-output-format".into(), "mp4".into(),
+                "-f".into(),
+                "bestvideo[height<=480]+bestaudio/best".into(),
+                "-o".into(),
+                output_template.clone(),
+                "--merge-output-format".into(),
+                "mp4".into(),
             ],
             _ => vec![
-                "-f".into(), "bestvideo+bestaudio/best".into(),
-                "-o".into(), output_template.clone(),
-                "--merge-output-format".into(), "mp4".into(),
+                "-f".into(),
+                "bestvideo+bestaudio/best".into(),
+                "-o".into(),
+                output_template.clone(),
+                "--merge-output-format".into(),
+                "mp4".into(),
             ],
         }
     };
@@ -618,9 +836,14 @@ pub async fn open_in_file_manager(path: String) -> Result<(), String> {
     {
         let _ = std::process::Command::new("explorer").arg(&path).spawn();
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
     {
         let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+    }
+    #[cfg(target_os = "android")]
+    {
+        // No general-purpose file manager on stock Android; nothing to do.
+        let _ = path;
     }
     Ok(())
 }
