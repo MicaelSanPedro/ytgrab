@@ -75,8 +75,20 @@ jobs:
         working-directory: src-tauri
         run: |
           export NDK_HOME="$ANDROID_HOME/ndk/29.0.13846066"
-          export CC_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang"
-          export AR_aarch64_linux_android="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          TOOLCHAIN="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          for c in aarch64-linux-android21-clang aarch64-linux-android24-clang aarch64-linux-android26-clang aarch64-linux-android28-clang aarch64-linux-android30-clang; do
+            if [ -x "$TOOLCHAIN/$c" ]; then
+              export CC_aarch64_linux_android="$TOOLCHAIN/$c"
+              break
+            fi
+          done
+          export AR_aarch64_linux_android="$TOOLCHAIN/llvm-ar"
+          if [ -z "${CC_aarch64_linux_android:-}" ]; then
+            echo "NDK clang não encontrado em $TOOLCHAIN"
+            ls "$TOOLCHAIN" 2>/dev/null | head -40 || true
+            exit 1
+          fi
+          echo "CC_aarch64_linux_android=$CC_aarch64_linux_android"
           rc=0
           cargo check --target aarch64-linux-android > /tmp/android-check.log 2>&1 || rc=$?
           echo "----- últimas 40 linhas do cargo check -----"
@@ -89,8 +101,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           {
-            echo "_`cargo check --target aarch64-linux-android` falhou — últimas 300 linhas (run \`${GITHUB_RUN_ID}\`):_"
+            echo "_`cargo check --target aarch64-linux-android` falhou — run \`${GITHUB_RUN_ID}\`_"
             echo ""
+            echo "NDK clang wrappers disponíveis:"
+            ls "$ANDROID_HOME/ndk/29.0.13846066/toolchains/llvm/prebuilt/linux-x86_64/bin" 2>/dev/null | grep -c "" || true
+            ls "$ANDROID_HOME/ndk/29.0.13846066/toolchains/llvm/prebuilt/linux-x86_64/bin" 2>/dev/null | grep "clang" | head -12 || true
+            echo ""
+            echo "Últimas 300 linhas do cargo check:"
             echo '```'
             tail -300 /tmp/android-check.log
             echo '```'
@@ -98,9 +115,8 @@ jobs:
           if gh release view ci-android-check-failure --json id >/dev/null 2>&1; then
             gh release edit ci-android-check-failure --draft --title "CI Android check failure (auto)" --notes-file /tmp/fail-notes.md
           else
-            gh release create ci-android-check-failure 0.0.0-ci --draft --target main --title "CI Android check failure (auto)" --notes-file /tmp/fail-notes.md
-          fi
-          || echo "nao consegui publicar o relatorio"
+            gh release create ci-android-check-failure --draft --target main --title "CI Android check failure (auto)" --notes-file /tmp/fail-notes.md
+          fi || echo "nao consegui publicar o relatorio"
 
   build-android:
     runs-on: ubuntu-latest
@@ -186,9 +202,8 @@ jobs:
           if gh release view ci-android-failure --json id >/dev/null 2>&1; then
             gh release edit ci-android-failure --draft --title "CI Android failure (auto)" --notes-file /tmp/fail-notes.md
           else
-            gh release create ci-android-failure 0.0.0-ci --draft --target main --title "CI Android failure (auto)" --notes-file /tmp/fail-notes.md
-          fi
-          || echo "nao consegui publicar o relatorio"
+            gh release create ci-android-failure --draft --target main --title "CI Android failure (auto)" --notes-file /tmp/fail-notes.md
+          fi || echo "nao consegui publicar o relatorio"
 
       - name: Sign APK
         run: |
