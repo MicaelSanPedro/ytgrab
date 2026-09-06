@@ -3,3 +3,7 @@ dist/
 src-tauri/target/
 *.log
 app-icon.png
+
+# bundled dependencies (populated by CI at build time; do not commit binaries)
+src-tauri/bin/*
+!src-tauri/bin/.gitkeep

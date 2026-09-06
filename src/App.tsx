@@ -51,16 +51,33 @@ function App() {
   const [installing, setInstalling] = useState(false);
   const [installMsg, setInstallMsg] = useState("");
   const [showInstallModal, setShowInstallModal] = useState(false);
+  const [platform, setPlatform] = useState("");
+  const [setup, setSetup] = useState<{
+    active: boolean;
+    percent: number;
+    message: string;
+    failed: boolean;
+  }>({ active: false, percent: 0, message: "", failed: false });
   const [history, setHistory] = useState<DownloadHistory[]>([]);
   const [successMsg, setSuccessMsg] = useState("");
   const unlistenRef = useRef<(() => void) | null>(null);
+  const setupRunningRef = useRef(false);
+  const setupUnlistenRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     // Load default download dir
     invoke<string>("get_default_download_dir").then(setOutputDir).catch(console.error);
 
-    // Check dependencies
-    checkDeps();
+    // Check dependencies (Android: auto-prepares on first use)
+    const boot = async () => {
+      let plat = "other";
+      try {
+        plat = await invoke<string>("get_platform");
+      } catch {}
+      setPlatform(plat);
+      await checkDeps(plat);
+    };
+    boot();
 
     // Listen for progress events
     const setupListener = async () => {
@@ -86,17 +103,71 @@ function App() {
     };
   }, []);
 
-  const checkDeps = async () => {
+  const checkDeps = async (plat: string) => {
     try {
       const deps = await invoke<Record<string, boolean>>("check_dependencies");
       setYtdlpInstalled(deps["ytdlp"] || false);
       setFfmpegInstalled(deps["ffmpeg"] || false);
 
       if (!deps["ytdlp"] || !deps["ffmpeg"]) {
-        setShowInstallModal(true);
+        if (plat === "android") {
+          // Android: prepara tudo sozinho no primeiro uso (sem passo manual)
+          startAutoSetup();
+        } else {
+          setShowInstallModal(true);
+        }
       }
     } catch (e) {
       console.error(e);
+      if (plat === "android") {
+        startAutoSetup();
+      } else {
+        setShowInstallModal(true);
+      }
+    }
+  };
+
+  const startAutoSetup = async () => {
+    if (setupRunningRef.current) return;
+    setupRunningRef.current = true;
+    setSetup({
+      active: true,
+      percent: 0,
+      message: "Preparando o app pela primeira vez...",
+      failed: false,
+    });
+    try {
+      const unlisten = await listen<{ stage: string; percent: number; message: string }>(
+        "setup-progress",
+        (e) => {
+          setSetup((s) => ({ ...s, percent: e.payload.percent, message: e.payload.message }));
+        },
+      );
+      setupUnlistenRef.current = unlisten;
+
+      await invoke<string>("setup_dependencies");
+
+      const deps = await invoke<Record<string, boolean>>("check_dependencies");
+      setYtdlpInstalled(!!deps["ytdlp"]);
+      setFfmpegInstalled(!!deps["ffmpeg"]);
+      setSetup({ active: true, percent: 100, message: "Tudo pronto! Abrindo o app...", failed: false });
+      setTimeout(() => {
+        setSetup({ active: false, percent: 0, message: "", failed: false });
+        if (setupUnlistenRef.current) {
+          setupUnlistenRef.current();
+          setupUnlistenRef.current = null;
+        }
+      }, 1500);
+    } catch (e: any) {
+      console.error(e);
+      setSetup({
+        active: true,
+        percent: 0,
+        message: String(e ?? "desconhecido"),
+        failed: true,
+      });
+    } finally {
+      setupRunningRef.current = false;
     }
   };
 
@@ -207,6 +278,65 @@ function App() {
         <h1 style={{ margin: 0, fontSize: 28, color: "#ff6b6b" }}>YTGrab</h1>
         <p style={{ margin: "4px 0 0", fontSize: 12, color: "#888" }}>Baixe vídeos e músicas do YouTube</p>
       </div>
+
+      {/* First-run auto-setup (Android) */}
+      {setup.active && (
+        <div style={{
+          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+          background: "rgba(0,0,0,0.92)", display: "flex",
+          alignItems: "center", justifyContent: "center", zIndex: 1200,
+          padding: 16,
+        }}>
+          <div style={{
+            background: "#16213e", borderRadius: 12, padding: 24,
+            maxWidth: 420, width: "100%", textAlign: "center",
+          }}>
+            <h2 style={{ color: "#ff6b6b", marginTop: 0, fontSize: 20 }}>
+              {setup.failed ? "Não foi possível preparar o app" : "Configurando o app..."}
+            </h2>
+
+            {!setup.failed && (
+              <>
+                <p style={{ fontSize: 13, color: "#ccc", lineHeight: 1.5, minHeight: 20 }}>
+                  {setup.message}
+                </p>
+                <div style={{
+                  width: "100%", height: 6, background: "#333",
+                  borderRadius: 3, overflow: "hidden", margin: "14px 0 6px",
+                }}>
+                  <div style={{
+                    width: `${Math.min(100, Math.max(0, setup.percent))}%`,
+                    height: "100%", background: "#ff6b6b",
+                    transition: "width 0.3s",
+                  }} />
+                </div>
+                <p style={{ fontSize: 11, color: "#888" }}>
+                  Só na primeira vez: o app baixa Python + ffmpeg (cerca de 40–60 MB)
+                  e se prepara sozinho, sem nenhuma etapa manual.
+                </p>
+              </>
+            )}
+
+            {setup.failed && (
+              <>
+                <p style={{ fontSize: 12, color: "#ff9f9f", wordBreak: "break-word", lineHeight: 1.5 }}>
+                  {setup.message}
+                </p>
+                <button
+                  onClick={startAutoSetup}
+                  style={{
+                    background: "#2ecc71", color: "#fff", border: "none",
+                    borderRadius: 8, padding: "10px 32px", fontSize: 14,
+                    cursor: "pointer", marginTop: 8,
+                  }}
+                >
+                  Tentar novamente
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Install Modal */}
       {showInstallModal && (
@@ -535,7 +665,7 @@ function App() {
       {/* Reinstall button */}
       <div style={{ marginTop: 16, textAlign: "center" }}>
         <button
-          onClick={() => setShowInstallModal(true)}
+          onClick={() => (platform === "android" ? startAutoSetup() : setShowInstallModal(true))}
           style={{
             background: "none", border: "none",
             color: "#555", fontSize: 11, cursor: "pointer",
