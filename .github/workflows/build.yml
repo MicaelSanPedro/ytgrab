@@ -111,19 +111,14 @@ jobs:
           tail -120 /tmp/android-build.log
           exit $rc
 
-      - name: Report build failure on PR
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          [ -f /tmp/android-build.log ] || exit 0
-          {
-            echo "### 🔴 build-android falhou — últimas linhas do log:"
-            echo '```'
-            tail -150 /tmp/android-build.log
-            echo '```'
-          } > /tmp/pr-report.md
-          gh pr comment 1 --body-file /tmp/pr-report.md || true
+      - name: Upload build log (for diagnostics)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-log
+          path: /tmp/android-build.log
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Sign APK
         run: |
