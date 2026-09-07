@@ -420,6 +420,16 @@ fn make_executable(_bin: &Path, _termux: &Path) -> std::io::Result<()> {
 // Main entry
 // ---------------------------------------------------------------------------
 
+/// Only one setup may run at a time. Android can reload the webview (which
+/// resets the JS-side guard) while a previous setup task is still running in
+/// Rust — without this lock, the second run would `remove_dir_all` the first
+/// run's half-extracted prefix and both runs would fail with a bogus
+/// "instalação incompleta". A second caller simply waits; when the lock is
+/// released it hits the idempotency check below and returns immediately if
+/// the first run succeeded.
+static SETUP_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+    std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
+
 pub async fn run(app: tauri::AppHandle) -> Result<String, String> {
     if std::env::consts::ARCH != "aarch64" {
         return Err(format!(
@@ -428,6 +438,8 @@ pub async fn run(app: tauri::AppHandle) -> Result<String, String> {
         ));
     }
 
+    let _setup_guard = SETUP_LOCK.lock().await;
+
     let data_dir = app
         .path()
         .app_data_dir()
@@ -435,11 +447,37 @@ pub async fn run(app: tauri::AppHandle) -> Result<String, String> {
     let root = data_dir.join("ytgrab-deps");
     let bin = root.join("bin");
     let termux = bin.join("termux");
+    let pybin = termux.join("usr").join("bin");
+
+    // Idempotency: a previous run finished successfully → nothing to download.
+    // (Covers webview reloads after a successful setup without re-wiping.)
+    let has_python = pybin.join("python3").is_file()
+        || std::fs::read_dir(&pybin)
+            .map(|it| {
+                it.flatten().any(|e| {
+                    e.file_name()
+                        .to_string_lossy()
+                        .starts_with("python3.")
+                        && e.path().is_file()
+                })
+            })
+            .unwrap_or(false);
+    if root
+        .join(".setup-ok")
+        .is_file()
+        && has_python
+        && pybin.join("ffmpeg").is_file()
+        && bin.join("yt-dlp").is_file()
+    {
+        emit(&app, "done", 100.0, "Tudo pronto!");
+        return Ok("Dependências já instaladas automaticamente!".to_string());
+    }
 
     // Start from a clean state (a half-finished setup from a previous run is
-    // simply redone).
-    if bin.exists() {
-        std::fs::remove_dir_all(&bin).map_err(|e| format!("Erro ao limpar a instalação anterior: {e}"))?;
+    // simply redone). Only the extracted prefix is wiped — never the rest of
+    // bin/ (e.g. a previously written yt-dlp script).
+    if termux.exists() {
+        std::fs::remove_dir_all(&termux).map_err(|e| format!("Erro ao limpar a instalação anterior: {e}"))?;
     }
     std::fs::create_dir_all(&termux).map_err(|e| e.to_string())?;
 
