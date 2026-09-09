@@ -110,8 +110,10 @@ function App() {
       setFfmpegInstalled(deps["ffmpeg"] || false);
 
       if (!deps["ytdlp"] || !deps["ffmpeg"]) {
-        if (plat === "android") {
-          // Android: prepara tudo sozinho no primeiro uso (sem passo manual)
+        if (plat === "android" || plat === "linux") {
+          // Android e Linux: preparam tudo sozinhos no primeiro uso (sem passo
+          // manual). No Linux o AppImage já traz yt-dlp e ffmpeg; isso só roda
+          // quando eles faltam (ex.: instalação via .deb).
           startAutoSetup();
         } else {
           setShowInstallModal(true);
@@ -119,7 +121,7 @@ function App() {
       }
     } catch (e) {
       console.error(e);
-      if (plat === "android") {
+      if (plat === "android" || plat === "linux") {
         startAutoSetup();
       } else {
         setShowInstallModal(true);
@@ -127,7 +129,7 @@ function App() {
     }
   };
 
-  const startAutoSetup = async () => {
+  const startAutoSetup = async (force = false) => {
     if (setupRunningRef.current) return;
     setupRunningRef.current = true;
     setSetup({
@@ -145,7 +147,7 @@ function App() {
       );
       setupUnlistenRef.current = unlisten;
 
-      await invoke<string>("setup_dependencies");
+      await invoke<string>("setup_dependencies", { force });
 
       const deps = await invoke<Record<string, boolean>>("check_dependencies");
       setYtdlpInstalled(!!deps["ytdlp"]);
@@ -311,8 +313,9 @@ function App() {
                   }} />
                 </div>
                 <p style={{ fontSize: 11, color: "#888" }}>
-                  Só na primeira vez: o app baixa Python + ffmpeg (cerca de 40–60 MB)
-                  e se prepara sozinho, sem nenhuma etapa manual.
+                  {platform === "linux"
+                    ? "Só na primeira vez: o app baixa o yt-dlp e o ffmpeg (cerca de 120 MB) e se prepara sozinho, sem nenhuma etapa manual."
+                    : "Só na primeira vez: o app baixa Python + ffmpeg (cerca de 40–60 MB) e se prepara sozinho, sem nenhuma etapa manual."}
                 </p>
               </>
             )}
@@ -323,7 +326,7 @@ function App() {
                   {setup.message}
                 </p>
                 <button
-                  onClick={startAutoSetup}
+                  onClick={() => startAutoSetup()}
                   style={{
                     background: "#2ecc71", color: "#fff", border: "none",
                     borderRadius: 8, padding: "10px 32px", fontSize: 14,
@@ -665,7 +668,11 @@ function App() {
       {/* Reinstall button */}
       <div style={{ marginTop: 16, textAlign: "center" }}>
         <button
-          onClick={() => (platform === "android" ? startAutoSetup() : setShowInstallModal(true))}
+          onClick={() => {
+            if (platform === "android") startAutoSetup();
+            else if (platform === "linux") startAutoSetup(true);
+            else setShowInstallModal(true);
+          }}
           style={{
             background: "none", border: "none",
             color: "#555", fontSize: 11, cursor: "pointer",

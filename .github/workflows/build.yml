@@ -54,6 +54,121 @@ jobs:
           releaseDraft: false
           prerelease: false
 
+  # ---------------------------------------------------------------------------
+  # AppImage (Linux desktop)
+  #
+  # Roda em ubuntu-22.04 de propósito: um AppImage herda a glibc de quem o
+  # compilou, então usar o runner mais antigo disponível maximiza a
+  # compatibilidade (glibc 2.35 => Ubuntu 22.04+, Debian 12+, Fedora 36+, ...).
+  # Compilar em ubuntu-latest geraria um AppImage que só abre em distros bem
+  # recentes.
+  # ---------------------------------------------------------------------------
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache do cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-tauri-${{ hashFiles('src-tauri/Cargo.lock') }}
+
+      - name: Install Linux system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget \
+            file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            squashfs-tools
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Download bundled dependencies (yt-dlp + ffmpeg estático)
+        run: |
+          set -euo pipefail
+          mkdir -p src-tauri/bin
+
+          # Binário standalone: já traz o Python embutido, então o AppImage não
+          # depende de python3 instalado na distro do usuário.
+          echo ">> yt-dlp (standalone)"
+          curl -fL --retry 3 -o src-tauri/bin/yt-dlp \
+            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux"
+
+          echo ">> ffmpeg (build estático do johnvansickle)"
+          case "$(uname -m)" in
+            x86_64)  FF_ARCH=amd64 ;;
+            aarch64) FF_ARCH=arm64 ;;
+            *) echo "arquitetura sem suporte: $(uname -m)"; exit 1 ;;
+          esac
+          curl -fL --retry 3 -o /tmp/ffmpeg.tar.xz \
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-${FF_ARCH}-static.tar.xz"
+          mkdir -p /tmp/ffmpeg-extract
+          tar -xf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg-extract
+          FF=$(find /tmp/ffmpeg-extract -type f -name ffmpeg -perm -u+x | head -1)
+          [ -n "$FF" ] || { echo "ffmpeg não encontrado no tarball"; exit 1; }
+          cp "$FF" src-tauri/bin/ffmpeg
+          FP=$(find /tmp/ffmpeg-extract -type f -name ffprobe -perm -u+x | head -1)
+          [ -n "$FP" ] && cp "$FP" src-tauri/bin/ffprobe
+
+          # Sem o bit de execução o app não consegue rodar o binário de dentro
+          # do AppImage, que é montado somente leitura.
+          chmod +x src-tauri/bin/yt-dlp src-tauri/bin/ffmpeg src-tauri/bin/ffprobe
+          ls -la src-tauri/bin
+
+      - name: Test real static ffmpeg extraction (host cargo test)
+        working-directory: src-tauri
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64)  FF_ARCH=amd64 ;;
+            aarch64) FF_ARCH=arm64 ;;
+          esac
+          curl -fL --retry 3 -o /tmp/ffmpeg-fixture.tar.xz \
+            "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-${FF_ARCH}-static.tar.xz"
+          rc=0
+          FFMPEG_FIXTURE=/tmp/ffmpeg-fixture.tar.xz cargo test --lib > /tmp/linux-debtest.log 2>&1 || rc=$?
+          tail -40 /tmp/linux-debtest.log
+          exit $rc
+
+      - name: Build AppImage
+        run: |
+          # Sem FUSE nos runners o appimagetool precisa se auto-extrair.
+          export NO_STRIP=true
+          export APPIMAGETOOL_APP_NAME="YTGrab"
+          npm run tauri build -- --bundles appimage --config src-tauri/tauri.linux.conf.json
+          ls -la src-tauri/target/release/bundle/appimage/
+
+      - name: Publish AppImage to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v__VERSION__
+          name: 'YTGrab v__VERSION__'
+          append_body: true
+          body: |
+
+            ### Linux (AppImage)
+
+            `YTGrab_v__VERSION___amd64.AppImage` — autocontido: já traz yt-dlp e ffmpeg estático,
+            não precisa instalar nada nem de `python3`.
+
+            ```bash
+            chmod +x YTGrab_v__VERSION___amd64.AppImage
+            ./YTGrab_v__VERSION___amd64.AppImage
+            ```
+          files: src-tauri/target/release/bundle/appimage/*.AppImage
+
   android-check:
     runs-on: ubuntu-latest
     steps:

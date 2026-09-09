@@ -6,6 +6,12 @@ mod commands;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 mod android_setup;
 
+/// First-run automatic dependency setup (standalone yt-dlp + static ffmpeg)
+/// on Linux desktop. Compiled on all targets so the Android build still
+/// compile-guards it.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod linux_setup;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -19,6 +25,7 @@ pub fn run() {
             commands::check_dependencies,
             commands::setup_dependencies,
             commands::get_platform,
+            commands::get_deps_dir,
             commands::get_ytdlp_install_info,
             commands::get_video_info,
             commands::get_default_download_dir,

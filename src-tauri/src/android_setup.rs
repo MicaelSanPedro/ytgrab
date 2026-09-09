@@ -36,7 +36,9 @@ pub struct SetupProgress {
     pub message: String,
 }
 
-fn emit(app: &tauri::AppHandle, stage: &str, percent: f64, message: &str) {
+/// Shared with `linux_setup`: both first-run setups report through the same
+/// `setup-progress` event, so the frontend overlay is identical on both.
+pub fn emit(app: &tauri::AppHandle, stage: &str, percent: f64, message: &str) {
     let _ = app.emit(
         "setup-progress",
         SetupProgress {

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://tauri.app/v2/schemas/config.schema.json",
+  "bundle": {
+    "targets": ["appimage"],
+    "resources": {
+      "bin/*": "ytgrab/"
+    }
+  }
+}
