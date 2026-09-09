@@ -150,23 +150,35 @@ jobs:
           npm run tauri build -- --bundles appimage --config src-tauri/tauri.linux.conf.json
           ls -la src-tauri/target/release/bundle/appimage/
 
+      # A tag precisa ser calculada: ao contrário do tauri-action (usado no job
+      # de Windows), o softprops/action-gh-release não substitui __VERSION__.
+      - name: Resolver a versão para a tag do release
+        run: |
+          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "versão: $VERSION -> tag v$VERSION"
+
       - name: Publish AppImage to the release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v__VERSION__
-          name: 'YTGrab v__VERSION__'
+          tag_name: v${{ env.VERSION }}
+          name: 'YTGrab v${{ env.VERSION }}'
           append_body: true
           body: |
 
             ### Linux (AppImage)
 
-            `YTGrab_v__VERSION___amd64.AppImage` — autocontido: já traz yt-dlp e ffmpeg estático,
-            não precisa instalar nada nem de `python3`.
+            Autocontido: já traz yt-dlp e ffmpeg estático, não precisa instalar
+            nada nem de `python3`.
 
             ```bash
-            chmod +x YTGrab_v__VERSION___amd64.AppImage
-            ./YTGrab_v__VERSION___amd64.AppImage
+            chmod +x YTGrab_${{ env.VERSION }}_amd64.AppImage
+            ./YTGrab_${{ env.VERSION }}_amd64.AppImage
             ```
+
+            Requer glibc 2.34+ (Ubuntu 22.04+, Debian 12+, Fedora 36+). Se a sua
+            distro não tiver FUSE: `sudo apt install libfuse2`, ou rode com
+            `--appimage-extract-and-run`.
           files: src-tauri/target/release/bundle/appimage/*.AppImage
 
   android-check:
