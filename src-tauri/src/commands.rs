@@ -88,14 +88,19 @@ fn deps_install_dir(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 /// Read-only directory that holds the dependencies bundled with the app.
 ///
-/// `tauri.conf.json` maps `src-tauri/bin` to `lib/ytgrab` inside the bundle,
-/// which lands in `<resource_dir>/ytgrab` at runtime.
+/// `tauri.linux.conf.json` maps `src-tauri/bin` to `deps/` inside the bundle,
+/// which lands in `<resource_dir>/deps` at runtime.
+///
+/// The destination must NOT be called `ytgrab`: tauri-build copies the
+/// resources into the cargo target directory while the build script runs, so
+/// `target/release/<dest>` would collide with the `ytgrab` binary cargo writes
+/// at that same path ("failed to remove file ... Is a directory").
 #[cfg(all(target_os = "linux", not(target_os = "android")))]
 fn bundled_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     app.path()
         .resource_dir()
         .ok()
-        .map(|d| d.join("ytgrab"))
+        .map(|d| d.join("deps"))
         .filter(|d| d.is_dir())
 }
 

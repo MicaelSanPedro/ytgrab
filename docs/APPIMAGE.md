@@ -55,7 +55,7 @@ ordem (`find_ytdlp` / `find_ffmpeg` em `src-tauri/src/commands.rs`):
 | # | Local | Escrita | Quem preenche |
 |---|-------|---------|---------------|
 | 1 | `<app_data_dir>/ytgrab-deps/bin` | gravável | `linux_setup.rs` (primeiro uso / botão reinstalar) |
-| 2 | `<resource_dir>/ytgrab` | somente leitura | embutido no AppImage via `tauri.linux.conf.json` |
+| 2 | `<resource_dir>/deps` | somente leitura | embutido no AppImage via `tauri.linux.conf.json` |
 | 3 | diretório do executável e `./bin` | varia | instalações manuais / `.deb` |
 | 4 | `which` no `PATH` do sistema | — | a própria distro |
 
@@ -79,7 +79,7 @@ yt-dlp. O ffmpeg é estático e não é afetado.
 | Arquivo | Papel |
 |---------|-------|
 | `src-tauri/src/linux_setup.rs` | baixa/instala `yt-dlp` + `ffmpeg` no primeiro uso, com os mesmos eventos `setup-progress` do Android |
-| `src-tauri/tauri.linux.conf.json` | overlay de configuração só do Linux: embute `src-tauri/bin/*` em `lib/ytgrab/` e restringe o bundle a `appimage` |
+| `src-tauri/tauri.linux.conf.json` | overlay de configuração só do Linux: embute `src-tauri/bin/*` em `deps/` e restringe o bundle a `appimage` |
 | `scripts/build-appimage.sh` | build local (baixa as deps, instala pacotes de sistema, compila) |
 | `.github/workflows/build.yml` | job `build-linux` |
 
@@ -95,6 +95,26 @@ O `tauri-build` valida **todos** os `tauri*.conf.json` do diretório, mesmo sem 
 `--config`. Ou seja: um campo inválido no overlay quebra o build de qualquer
 plataforma. Foi assim que se descobriu que `bundle.linux.appimage` não aceita
 `categories` nesta versão do Tauri (só `bundleMediaFramework` e `files`).
+
+### O destino dos recursos não pode se chamar `ytgrab`
+
+O mapeamento era `"bin/*": "ytgrab/"` e o build quebrava com:
+
+```
+error: failed to remove file `src-tauri/target/release/ytgrab`
+Caused by: Is a directory (os error 21)
+```
+
+O motivo está no `tauri-build`: o build script deriva o diretório de destino a
+partir do `OUT_DIR` (`out_dir.parent().parent().parent()`, com um
+`// TODO: far from ideal` no código) e copia os `bundle.resources` para lá. Isso
+resolve para `target/release`, então `"bin/*": "ytgrab/"` criava o **diretório**
+`target/release/ytgrab/` — exatamente onde o cargo grava o binário `ytgrab`.
+Como o build script roda antes do link, o cargo encontrava um diretório no lugar
+do arquivo.
+
+Daí o destino ser `deps/`. Se um dia o nome do binário mudar, o destino pode
+voltar a ser qualquer coisa que não colida com ele.
 
 ## Testes
 

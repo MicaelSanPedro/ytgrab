@@ -142,21 +142,6 @@ jobs:
           tail -40 /tmp/linux-debtest.log
           exit $rc
 
-      # `cargo build` falha com "failed to remove file ... Is a directory" se
-      # existir um DIRETÓRIO em target/release/<nome-do-binário>, que é onde o
-      # binário deve ser gravado. Aconteceu na primeira execução deste job e a
-      # origem não ficou clara, então: limpamos antes (o cargo recria o binário
-      # sem problema) e registramos o estado do diretório para o caso de
-      # reaparecer — assim o log diz quem criou.
-      - name: Limpar artefato conflitante em target/release
-        run: |
-          set -x
-          ls -la src-tauri/target/release/ 2>/dev/null | head -30 || echo "target/release ainda não existe"
-          if [ -d src-tauri/target/release/ytgrab ]; then
-            echo "AVISO: target/release/ytgrab é um diretório — removendo"
-            rm -rf src-tauri/target/release/ytgrab
-          fi
-
       - name: Build AppImage
         run: |
           # Sem FUSE nos runners o appimagetool precisa se auto-extrair.

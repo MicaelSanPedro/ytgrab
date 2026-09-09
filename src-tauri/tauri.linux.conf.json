@@ -3,7 +3,7 @@
   "bundle": {
     "targets": ["appimage"],
     "resources": {
-      "bin/*": "ytgrab/"
+      "bin/*": "deps/"
     }
   }
 }
