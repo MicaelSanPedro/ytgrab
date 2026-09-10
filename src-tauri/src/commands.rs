@@ -12,6 +12,11 @@ pub struct VideoInfo {
     pub thumbnail: String,
     pub duration: String,
     pub author: String,
+    /// Resoluções de vídeo que a fonte realmente oferece (decrescente), para o
+    /// seletor de qualidade só mostrar opções existentes. Vazio = não checado.
+    pub available_heights: Vec<u32>,
+    /// Bitrates de áudio disponíveis na fonte (kbps, decrescente).
+    pub audio_bitrates: Vec<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -510,6 +515,63 @@ pub async fn check_dependencies(app: tauri::AppHandle) -> Result<HashMap<String,
     Ok(result)
 }
 
+/// Compara versões semver simples (x.y.z): `a > b`?
+fn version_gt(a: &str, b: &str) -> bool {
+    let pa: Vec<u32> = a.split('.').filter_map(|s| s.parse().ok()).collect();
+    let pb: Vec<u32> = b.split('.').filter_map(|s| s.parse().ok()).collect();
+    for i in 0..3 {
+        let x = *pa.get(i).unwrap_or(&0);
+        let y = *pb.get(i).unwrap_or(&0);
+        if x != y {
+            return x > y;
+        }
+    }
+    false
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct UpdateInfo {
+    pub has_update: bool,
+    pub latest: String,
+    pub url: String,
+}
+
+/// Consulta a release mais recente do YTGrab no GitHub e compara com a versão
+/// embutida no binário. A frequência das consultas é controlada pela UI.
+#[tauri::command]
+pub async fn check_app_update() -> Result<UpdateInfo, String> {
+    let current = env!("CARGO_PKG_VERSION");
+    let response = reqwest::Client::new()
+        .get("https://api.github.com/repos/MicaelSanPedro/ytgrab/releases/latest")
+        .header("User-Agent", "ytgrab")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| format!("Falha ao verificar atualizações: {}", e))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Falha ao verificar atualizações (HTTP {})",
+            response.status()
+        ));
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("Falha ao verificar atualizações: {}", e))?;
+    let json: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("Resposta inválida do GitHub: {}", e))?;
+    let tag = json["tag_name"].as_str().unwrap_or("").trim_start_matches('v');
+    let url = json["html_url"]
+        .as_str()
+        .unwrap_or("https://github.com/MicaelSanPedro/ytgrab/releases")
+        .to_string();
+    Ok(UpdateInfo {
+        has_update: version_gt(tag, current),
+        latest: tag.to_string(),
+        url,
+    })
+}
+
 /// Current platform identifier ("android", "windows", "linux" or "other").
 #[tauri::command]
 pub fn get_platform() -> String {
@@ -650,6 +712,44 @@ pub async fn get_video_info(app: tauri::AppHandle, url: String) -> Result<VideoI
     let duration_secs = json["duration"].as_f64().unwrap_or(0.0);
     let author = json["channel"].as_str().unwrap_or("Desconhecido").to_string();
 
+    // Resoluções reais da fonte: formatos com vídeo (height > 0), sem
+    // duplicatas, em ordem decrescente.
+    let mut heights: Vec<u32> = json["formats"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|f| {
+                    let h = f["height"].as_u64().unwrap_or(0);
+                    let has_video = f["vcodec"].as_str().unwrap_or("none") != "none";
+                    (h > 0 && has_video).then_some(h as u32)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    heights.sort_unstable();
+    heights.dedup();
+    heights.reverse();
+
+    // Bitrates reais de áudio (kbps): formatos sem vídeo que carregam abr/tbr.
+    let mut bitrates: Vec<u32> = json["formats"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|f| {
+                    let has_video = f["vcodec"].as_str().unwrap_or("none") != "none";
+                    if has_video {
+                        return None;
+                    }
+                    let kbps = f["abr"].as_f64().or_else(|| f["tbr"].as_f64())?;
+                    (kbps > 0.0).then_some(kbps.round() as u32)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    bitrates.sort_unstable();
+    bitrates.dedup();
+    bitrates.reverse();
+
     let duration = if duration_secs > 0.0 {
         let mins = (duration_secs / 60.0).floor() as i32;
         let secs = (duration_secs % 60.0).round() as i32;
@@ -658,7 +758,14 @@ pub async fn get_video_info(app: tauri::AppHandle, url: String) -> Result<VideoI
         "?:??".to_string()
     };
 
-    Ok(VideoInfo { title, thumbnail, duration, author })
+    Ok(VideoInfo {
+        title,
+        thumbnail,
+        duration,
+        author,
+        available_heights: heights,
+        audio_bitrates: bitrates,
+    })
 }
 
 /// Get default download directory
@@ -682,12 +789,17 @@ pub async fn get_default_download_dir(app: tauri::AppHandle) -> Result<String, S
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-pub async fn get_default_download_dir() -> Result<String, String> {
+pub async fn get_default_download_dir(own_folder: Option<bool>) -> Result<String, String> {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .map_err(|e| format!("Erro ao obter diretório home: {}", e))?;
 
-    let download_dir = PathBuf::from(&home).join("Downloads");
+    // own_folder=true (padrão): pasta própria do app, Downloads/YTGrab;
+    // false: Downloads do usuário, sem subpasta.
+    let mut download_dir = PathBuf::from(&home).join("Downloads");
+    if own_folder.unwrap_or(true) {
+        download_dir = download_dir.join("YTGrab");
+    }
     if !download_dir.exists() {
         std::fs::create_dir_all(&download_dir)
             .map_err(|e| format!("Erro ao criar diretório: {}", e))?;
@@ -703,6 +815,7 @@ async fn run_ytdlp(
     output_dir: &str,
     url: &str,
     is_audio: bool,
+    convert_to: Option<String>,
 ) -> Result<String, String> {
     let mut cmd = ytdlp_base_command(app)?;
 
@@ -836,6 +949,14 @@ async fn run_ytdlp(
         cleanup_intermediate_files(&output_dir_path);
     }
 
+    // Pós-conversão pedida na UI (select "Converter para:"): roda o ffmpeg
+    // embutido sobre o arquivo baixado e o substitui pelo resultado.
+    if let Some(target) = convert_to.as_deref().filter(|t| *t != "none") {
+        let downloaded_ext = if is_audio { "mp3" } else { "mp4" };
+        let produced = convert_downloaded(app, &output_dir_path, downloaded_ext, target).await?;
+        return Ok(format!("Convertido para .{target}: {}", produced));
+    }
+
     Ok("Download concluído!".to_string())
 }
 
@@ -907,6 +1028,9 @@ pub async fn download(
     format: String,
     quality: String,
     output_dir: String,
+    // Pós-conversão opcional do resultado: "none" (padrão), "mp4", "mkv",
+    // "webm" (vídeo) ou "mp3", "m4a", "opus", "wav" (só áudio).
+    convert_to: Option<String>,
 ) -> Result<String, String> {
     // Validate yt-dlp exists
     find_ytdlp(&app)?;
@@ -923,83 +1047,36 @@ pub async fn download(
     // Build output template - clean title, proper extension
     let output_template = format!("{}/%(title)s.{}", output_dir, format);
 
-    // Build simple, direct yt-dlp command arguments
-    // NO cookies, NO complex format strings - just like running from cmd
+    // Build simple, direct yt-dlp command arguments.
+    // `quality` comes from the UI as the value the user picked among the
+    // options the source actually offers: a height in pixels (video) or a
+    // bitrate in kbps (audio); "best" leaves the choice to yt-dlp.
     let args: Vec<String> = if is_audio {
-        // MP3: extract audio, convert to mp3
-        match quality.as_str() {
-            "0" => vec![
-                "-x".into(),
-                "--audio-format".into(),
-                "mp3".into(),
-                "--audio-quality".into(),
-                "0".into(),
-                "-o".into(),
-                output_template.clone(),
-            ],
-            "2" => vec![
-                "-x".into(),
-                "--audio-format".into(),
-                "mp3".into(),
-                "--audio-quality".into(),
-                "2".into(),
-                "-o".into(),
-                output_template.clone(),
-            ],
-            _ => vec![
-                "-x".into(),
-                "--audio-format".into(),
-                "mp3".into(),
-                "--audio-quality".into(),
-                "0".into(),
-                "-o".into(),
-                output_template.clone(),
-            ],
-        }
+        // MP3: extract audio, convert to mp3 at the chosen bitrate.
+        vec![
+            "-x".into(),
+            "--audio-format".into(),
+            "mp3".into(),
+            "--audio-quality".into(),
+            format!("{quality}K"),
+            "-o".into(),
+            output_template.clone(),
+        ]
     } else {
-        // MP4: download video with specified quality
-        match quality.as_str() {
-            "2160" => vec![
-                "-f".into(),
-                "bestvideo[height<=2160]+bestaudio/best".into(),
-                "-o".into(),
-                output_template.clone(),
-                "--merge-output-format".into(),
-                "mp4".into(),
-            ],
-            "1080" => vec![
-                "-f".into(),
-                "bestvideo[height<=1080]+bestaudio/best".into(),
-                "-o".into(),
-                output_template.clone(),
-                "--merge-output-format".into(),
-                "mp4".into(),
-            ],
-            "720" => vec![
-                "-f".into(),
-                "bestvideo[height<=720]+bestaudio/best".into(),
-                "-o".into(),
-                output_template.clone(),
-                "--merge-output-format".into(),
-                "mp4".into(),
-            ],
-            "480" => vec![
-                "-f".into(),
-                "bestvideo[height<=480]+bestaudio/best".into(),
-                "-o".into(),
-                output_template.clone(),
-                "--merge-output-format".into(),
-                "mp4".into(),
-            ],
-            _ => vec![
-                "-f".into(),
-                "bestvideo+bestaudio/best".into(),
-                "-o".into(),
-                output_template.clone(),
-                "--merge-output-format".into(),
-                "mp4".into(),
-            ],
-        }
+        // MP4: download video capped at the chosen height.
+        let fmt = if quality == "best" {
+            "bestvideo+bestaudio/best".to_string()
+        } else {
+            format!("bestvideo[height<={quality}]+bestaudio/best")
+        };
+        vec![
+            "-f".into(),
+            fmt,
+            "-o".into(),
+            output_template.clone(),
+            "--merge-output-format".into(),
+            "mp4".into(),
+        ]
     };
 
     // Emit initial progress
@@ -1010,7 +1087,135 @@ pub async fn download(
         stage: "starting".to_string(),
     });
 
-    run_ytdlp(&app, &args, &output_dir, &url, is_audio).await
+    run_ytdlp(&app, &args, &output_dir, &url, is_audio, convert_to).await
+}
+
+// ---------------------------------------------------------------------------
+// Conversor embutido (ffmpeg)
+// ---------------------------------------------------------------------------
+
+/// Duração em segundos de um arquivo de mídia, via ffprobe (o build embutido
+/// traz o ffprobe ao lado do ffmpeg). None = progresso indeterminado.
+fn probe_duration(ffmpeg_dir: &Path, file: &Path) -> Option<f64> {
+    let name = if cfg!(target_os = "windows") { "ffprobe.exe" } else { "ffprobe" };
+    let ffprobe = ffmpeg_dir.join(name);
+    if !ffprobe.is_file() {
+        return None;
+    }
+    let out = std::process::Command::new(ffprobe)
+        .args(["-v", "error", "-show_entries", "format=duration", "-of", "default=nw=nk=1"])
+        .arg(file)
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout).trim().parse::<f64>().ok()
+}
+
+/// Converte `time=HH:MM:SS.cc` das linhas de progresso do ffmpeg em segundos.
+fn parse_ffmpeg_time(line: &str) -> Option<f64> {
+    let pos = line.find("time=")?;
+    let rest = &line[pos + 5..];
+    let end = rest.find(|c: char| c == ' ' || c == '\r').unwrap_or(rest.len());
+    let mut parts = rest[..end].split(':');
+    let h: f64 = parts.next()?.parse().ok()?;
+    let m: f64 = parts.next()?.parse().ok()?;
+    let s: f64 = parts.next()?.parse().ok()?;
+    Some(h * 3600.0 + m * 60.0 + s)
+}
+
+/// Argumentos do ffmpeg por formato de destino. Formatos de vídeo reencodam
+/// (libx264/libvpx); os de áudio descartam o fluxo de vídeo.
+fn ffmpeg_target_args(target: &str) -> Option<Vec<String>> {
+    Some(match target {
+        "mp4" => vec!["-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "aac", "-b:a", "192k"],
+        "mkv" => vec!["-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "aac", "-b:a", "192k"],
+        "webm" => vec!["-c:v", "libvpx", "-b:v", "2M", "-c:a", "libvorbis", "-q:a", "4"],
+        "mp3" => vec!["-vn", "-c:a", "libmp3lame", "-b:a", "320k"],
+        "m4a" => vec!["-vn", "-c:a", "aac", "-b:a", "192k"],
+        "opus" => vec!["-vn", "-c:a", "libopus", "-b:a", "128k"],
+        "wav" => vec!["-vn", "-c:a", "pcm_s16le"],
+        _ => return None,
+    }.into_iter().map(String::from).collect())
+}
+
+/// Converte o arquivo baixado para o formato pedido e, se a conversão tiver
+/// sucesso, remove o original (o resultado vira o artefato final).
+async fn convert_downloaded(
+    app: &tauri::AppHandle,
+    output_dir: &str,
+    downloaded_ext: &str,
+    target: &str,
+) -> Result<String, String> {
+    let ffmpeg = find_ffmpeg(app)
+        .ok_or_else(|| "ffmpeg não encontrado para converter o arquivo.".to_string())?;
+
+    // O arquivo que o yt-dlp acabou de produzir = o mais recente da pasta com
+    // a extensão do download.
+    let dir = Path::new(output_dir);
+    let mut produced: Option<PathBuf> = None;
+    for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())?.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase())
+            == Some(downloaded_ext.to_string())
+        {
+            let newer = match &produced {
+                Some(cur) => {
+                    let a = entry.metadata().ok().and_then(|m| m.modified().ok());
+                    let b = cur.metadata().ok().and_then(|m| m.modified().ok());
+                    match (a, b) {
+                        (Some(x), Some(y)) => x > y,
+                        _ => true,
+                    }
+                }
+                None => true,
+            };
+            if newer {
+                produced = Some(p);
+            }
+        }
+    }
+    let input = produced.ok_or_else(|| "Arquivo baixado não foi localizado para conversão.".to_string())?;
+
+    let out = input.with_extension(target);
+    let mut cmd = tokio::process::Command::new(&ffmpeg);
+    cmd.arg("-y").arg("-i").arg(&input).arg("-hide_banner").arg("-loglevel").arg("info");
+    let args = ffmpeg_target_args(target)
+        .ok_or_else(|| format!("Formato de conversão não suportado: {target}"))?;
+    for a in &args {
+        cmd.arg(a);
+    }
+    cmd.arg(&out).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+
+    let total = ffmpeg.parent().and_then(|d| probe_duration(d, &input));
+
+    let mut child = cmd.spawn().map_err(|e| format!("Erro ao iniciar o ffmpeg: {e}"))?;
+    let stderr = child.stderr.take().ok_or("Não foi possível ler a saída do ffmpeg")?;
+    let mut lines = tokio::io::BufReader::new(stderr).lines();
+    let mut last_error = String::new();
+    while let Ok(Some(line)) = lines.next_line().await {
+        if let (Some(total_secs), Some(t)) = (total, parse_ffmpeg_time(&line)) {
+            if total_secs > 0.0 {
+                let pct = (t / total_secs * 100.0).min(100.0);
+                let _ = app.emit("download-progress", DownloadProgress {
+                    percentage: pct,
+                    speed: String::new(),
+                    eta: String::new(),
+                    stage: "converting".to_string(),
+                });
+            }
+        }
+        if !line.trim().is_empty() {
+            last_error = line;
+        }
+    }
+
+    let status = child.wait().await.map_err(|e| format!("Erro ao aguardar o ffmpeg: {e}"))?;
+    if !status.success() || !out.is_file() {
+        return Err(format!("Conversão falhou: {}", last_error.trim().chars().take(300).collect::<String>()));
+    }
+
+    // O convertido vira o artefato final; o intermediário sai de cena.
+    let _ = std::fs::remove_file(&input);
+    Ok(out.display().to_string())
 }
 
 /// Open directory in file manager
