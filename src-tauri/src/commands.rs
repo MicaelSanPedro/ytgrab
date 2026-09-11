@@ -69,7 +69,7 @@ fn ffmpeg_bin_name() -> &'static str {
 // ---------------------------------------------------------------------------
 
 /// True when running from inside an AppImage.
-#[cfg(all(target_os = "linux", not(target_os = "android")))]
+#[cfg(target_os = "linux")]
 fn is_appimage() -> bool {
     std::env::var_os("APPIMAGE").is_some()
 }
@@ -78,7 +78,7 @@ fn is_appimage() -> bool {
 ///
 /// On Linux this is **not** the executable directory (see above); everywhere
 /// else it is, which keeps the historical behaviour of the Windows installer.
-#[cfg(all(target_os = "linux", not(target_os = "android")))]
+#[cfg(target_os = "linux")]
 fn deps_install_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let bin = crate::linux_setup::deps_bin_dir(app)?;
     std::fs::create_dir_all(&bin)
@@ -86,7 +86,7 @@ fn deps_install_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(bin)
 }
 
-#[cfg(not(all(target_os = "linux", not(target_os = "android"))))]
+#[cfg(not(target_os = "linux"))]
 fn deps_install_dir(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
     get_app_dir()
 }
@@ -100,7 +100,7 @@ fn deps_install_dir(_app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// resources into the cargo target directory while the build script runs, so
 /// `target/release/<dest>` would collide with the `ytgrab` binary cargo writes
 /// at that same path ("failed to remove file ... Is a directory").
-#[cfg(all(target_os = "linux", not(target_os = "android")))]
+#[cfg(target_os = "linux")]
 fn bundled_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
     app.path()
         .resource_dir()
@@ -109,7 +109,7 @@ fn bundled_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
         .filter(|d| d.is_dir())
 }
 
-#[cfg(not(all(target_os = "linux", not(target_os = "android"))))]
+#[cfg(not(target_os = "linux"))]
 fn bundled_dir(_app: &tauri::AppHandle) -> Option<PathBuf> {
     None
 }
@@ -137,7 +137,7 @@ pub(crate) fn is_executable(path: &Path) -> bool {
 /// executable that carries its own `libz`/`libexpat` — picking up the AppImage
 /// copies instead makes it fail at startup. The ffmpeg build is fully static,
 /// so it is unaffected.
-#[cfg(all(target_os = "linux", not(target_os = "android")))]
+#[cfg(target_os = "linux")]
 fn clean_appimage_env(cmd: &mut Command) {
     if !is_appimage() {
         return;
@@ -147,65 +147,9 @@ fn clean_appimage_env(cmd: &mut Command) {
     }
 }
 
-#[cfg(not(all(target_os = "linux", not(target_os = "android"))))]
+#[cfg(not(target_os = "linux"))]
 fn clean_appimage_env(_cmd: &mut Command) {}
 
-// ---------------------------------------------------------------------------
-// Android: first-run dependencies (Termux-style prefix)
-//
-// On first use the app downloads a Termux aarch64 runtime (python3 + ffmpeg
-// + shared libraries + the yt-dlp script) into `<dataDir>/ytgrab-deps/bin`
-// (see `android_setup.rs`), which lives right under the directory
-// `AppHandle::path().app_data_dir()` resolves to.
-// ---------------------------------------------------------------------------
-#[cfg(target_os = "android")]
-mod android_deps {
-    use super::*;
-
-    /// Root of the extracted bundled dependencies.
-    pub fn root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-        let data = app
-            .path()
-            .app_data_dir()
-            .map_err(|e| format!("Erro ao obter diretório do app: {}", e))?;
-        Ok(data.join("ytgrab-deps").join("bin"))
-    }
-
-    /// Path to the bundled python3 interpreter.
-    pub fn python(root: &Path) -> PathBuf {
-        root.join("termux").join("usr").join("bin").join("python3")
-    }
-
-    /// Path to the bundled yt-dlp script.
-    pub fn script(root: &Path) -> PathBuf {
-        root.join("yt-dlp")
-    }
-
-    /// Path to the bundled ffmpeg binary.
-    pub fn ffmpeg(root: &Path) -> PathBuf {
-        root.join("termux").join("usr").join("bin").join("ffmpeg")
-    }
-
-    /// Prefix used by the Termux python build (PYTHONHOME).
-    pub fn prefix(root: &Path) -> PathBuf {
-        root.join("termux").join("usr")
-    }
-}
-
-#[cfg(target_os = "android")]
-fn find_ytdlp(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let root = android_deps::root(app)?;
-    let python = android_deps::python(&root);
-    let script = android_deps::script(&root);
-    if python.is_file() && script.is_file() {
-        // Return the script path: it is what identifies the "yt-dlp install"
-        // for display purposes; the actual process is `python3 <script>`.
-        return Ok(script);
-    }
-    Err("yt-dlp não encontrado. As dependências ainda não foram instaladas no aparelho.".to_string())
-}
-
-#[cfg(not(target_os = "android"))]
 fn find_ytdlp(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     // Candidate directories, in priority order: the writable directory managed
     // by the first-run setup, the copies bundled inside the app (AppImage),
@@ -252,18 +196,6 @@ fn find_ytdlp(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Err("yt-dlp não encontrado. Clique em 'Reinstalar dependências' para instalar.".to_string())
 }
 
-#[cfg(target_os = "android")]
-fn find_ffmpeg(app: &tauri::AppHandle) -> Option<PathBuf> {
-    let root = android_deps::root(app).ok()?;
-    let ffmpeg = android_deps::ffmpeg(&root);
-    if ffmpeg.is_file() {
-        Some(ffmpeg)
-    } else {
-        None
-    }
-}
-
-#[cfg(not(target_os = "android"))]
 fn find_ffmpeg(app: &tauri::AppHandle) -> Option<PathBuf> {
     // Same priority order as `find_ytdlp`: writable setup dir, bundle, app dir.
     let mut candidates: Vec<PathBuf> = Vec::new();
@@ -303,57 +235,12 @@ fn find_ffmpeg(app: &tauri::AppHandle) -> Option<PathBuf> {
 
 /// Build the base process for running yt-dlp (no yt-dlp arguments yet).
 ///
-/// Desktop: runs the yt-dlp binary (no console window on Windows).
-/// Android: runs the bundled python3 interpreter against the bundled yt-dlp
-/// script, with the environment the Termux prefix needs
-/// (PYTHONHOME, TMPDIR and the CA bundle for TLS).
-#[cfg(target_os = "android")]
-fn ytdlp_base_command(app: &tauri::AppHandle) -> Result<Command, String> {
-    let root = android_deps::root(app)?;
-    let python = android_deps::python(&root);
-    let script = android_deps::script(&root);
-    let prefix = android_deps::prefix(&root);
-
-    if !python.is_file() || !script.is_file() {
-        return Err("yt-dlp não encontrado. As dependências ainda não foram instaladas no aparelho.".to_string());
-    }
-
-    let mut cmd = Command::new(&python);
-    // The Termux python build looks for its standard library at its compile
-    // time prefix; PYTHONHOME redirects it to the extracted copy.
-    cmd.env("PYTHONHOME", &prefix);
-    // Make sure the dynamic linker finds the Termux shared libraries
-    // (libpython, libssl, libcrypto, ...) even if rpath is missing.
-    cmd.env("LD_LIBRARY_PATH", prefix.join("lib"));
-    // Writable temp directory inside the app's own data (never the APK path).
-    let tmp = root
-        .parent()
-        .map(|p| p.join("tmp"))
-        .unwrap_or_else(std::env::temp_dir);
-    let _ = std::fs::create_dir_all(&tmp);
-    cmd.env("TMPDIR", &tmp)
-        .env("TMP", &tmp)
-        .env("TEMP", &tmp);
-    // Termux libssl was built with a hardcoded CA path (which varies between
-    // builds); point OpenSSL at the first valid CA bundle we can find.
-    let ca_candidates = [
-        prefix.join("ssl").join("certs").join("ca-bundle.crt"),
-        prefix.join("etc").join("tls").join("cert.pem"),
-        prefix.join("etc").join("ssl").join("cert.pem"),
-    ];
-    if let Some(ca) = ca_candidates.iter().find(|c| c.is_file()) {
-        cmd.env("SSL_CERT_FILE", ca);
-    }
-    cmd.arg(&script);
-    Ok(cmd)
-}
-
-#[cfg(not(target_os = "android"))]
+/// Runs the yt-dlp binary (no console window on Windows).
 fn ytdlp_base_command(app: &tauri::AppHandle) -> Result<Command, String> {
     let ytdlp = find_ytdlp(app)?;
     let mut cmd = Command::new(&ytdlp);
 
-    #[cfg(all(target_os = "linux", not(target_os = "android")))]
+    #[cfg(target_os = "linux")]
     {
         // The AppImage runtime exports LD_LIBRARY_PATH pointing at the libs it
         // ships; that would break the standalone yt-dlp binary (see
@@ -385,12 +272,12 @@ pub async fn install_ytdlp(app: tauri::AppHandle) -> Result<String, String> {
         return Ok(format!("yt-dlp já está instalado: {}", path.display()));
     }
 
-    #[cfg(all(target_os = "linux", not(target_os = "android")))]
+    #[cfg(target_os = "linux")]
     {
         return crate::linux_setup::run(app, false).await;
     }
 
-    #[cfg(not(all(target_os = "linux", not(target_os = "android"))))]
+    #[cfg(not(target_os = "linux"))]
     {
     let app_dir = deps_install_dir(&app)?;
     let ytdlp_path = app_dir.join(ytdlp_bin_name());
@@ -410,8 +297,7 @@ pub async fn install_ytdlp(app: tauri::AppHandle) -> Result<String, String> {
         std::fs::write(&ytdlp_path, &bytes).map_err(|e| format!("Erro ao salvar yt-dlp: {}", e))?;
         Ok(format!("yt-dlp instalado em: {}", ytdlp_path.display()))
     } else {
-        // Linux/Android: download the yt-dlp Python script and make it executable
-        // On Android, this requires Python to be available (e.g. via Termux)
+        // Unix fallback: download the yt-dlp Python script and make it executable
         let url = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp";
         let response = reqwest::get(url).await.map_err(|e| format!("Erro ao baixar yt-dlp: {}", e))?;
         if !response.status().is_success() {
@@ -443,12 +329,12 @@ pub async fn install_ffmpeg(app: tauri::AppHandle) -> Result<String, String> {
         return Ok(format!("ffmpeg já está instalado: {}", path.display()));
     }
 
-    #[cfg(all(target_os = "linux", not(target_os = "android")))]
+    #[cfg(target_os = "linux")]
     {
         return crate::linux_setup::run(app, false).await;
     }
 
-    #[cfg(not(all(target_os = "linux", not(target_os = "android"))))]
+    #[cfg(not(target_os = "linux"))]
     {
     let app_dir = deps_install_dir(&app)?;
     let ffmpeg_path = app_dir.join(ffmpeg_bin_name());
@@ -572,12 +458,10 @@ pub async fn check_app_update() -> Result<UpdateInfo, String> {
     })
 }
 
-/// Current platform identifier ("android", "windows", "linux" or "other").
+/// Current platform identifier ("windows", "linux" or "other").
 #[tauri::command]
 pub fn get_platform() -> String {
-    if cfg!(target_os = "android") {
-        "android".to_string()
-    } else if cfg!(target_os = "windows") {
+    if cfg!(target_os = "windows") {
         "windows".to_string()
     } else if cfg!(target_os = "linux") {
         "linux".to_string()
@@ -596,9 +480,6 @@ pub fn get_deps_dir(app: tauri::AppHandle) -> String {
 
 /// Prepare the dependencies automatically.
 ///
-/// Android: downloads and sets everything up on first run (Termux python +
-/// ffmpeg + yt-dlp) into the app's private storage, emitting `setup-progress`
-/// events while it works. No manual step or permission is needed.
 /// Linux: the AppImage ships both binaries, so this normally answers right
 /// away. If they are missing (a `.deb` install, or the user removed them), it
 /// downloads them into the app's data directory with the same progress events.
@@ -607,12 +488,7 @@ pub fn get_deps_dir(app: tauri::AppHandle) -> String {
 /// everything, ignoring the marker left by a previous successful setup.
 #[tauri::command]
 pub async fn setup_dependencies(app: tauri::AppHandle, force: Option<bool>) -> Result<String, String> {
-    #[cfg(target_os = "android")]
-    {
-        let _ = force;
-        crate::android_setup::run(app).await
-    }
-    #[cfg(all(target_os = "linux", not(target_os = "android")))]
+    #[cfg(target_os = "linux")]
     {
         if force.unwrap_or(false) {
             return crate::linux_setup::run(app, true).await;
@@ -629,7 +505,7 @@ pub async fn setup_dependencies(app: tauri::AppHandle, force: Option<bool>) -> R
         }
         Err("ffmpeg não encontrado. Instale-o com `sudo apt install ffmpeg` ou clique em 'Instalar ffmpeg'.".to_string())
     }
-    #[cfg(not(any(target_os = "android", target_os = "linux")))]
+    #[cfg(not(target_os = "linux"))]
     {
         let _ = force;
         if find_ytdlp(&app).is_ok() && find_ffmpeg(&app).is_some() {
@@ -768,26 +644,7 @@ pub async fn get_video_info(app: tauri::AppHandle, url: String) -> Result<VideoI
     })
 }
 
-/// Get default download directory
-///
-/// Android: the app's own data directory (scoped storage).
-/// Desktop: the user's Downloads folder.
-#[cfg(target_os = "android")]
-#[tauri::command]
-pub async fn get_default_download_dir(app: tauri::AppHandle) -> Result<String, String> {
-    let data = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Erro ao obter diretório do app: {}", e))?;
-    let download_dir = data.join("Downloads");
-    if !download_dir.exists() {
-        std::fs::create_dir_all(&download_dir)
-            .map_err(|e| format!("Erro ao criar diretório: {}", e))?;
-    }
-    Ok(download_dir.to_string_lossy().to_string())
-}
-
-#[cfg(not(target_os = "android"))]
+/// Get default download directory: the user's Downloads folder.
 #[tauri::command]
 pub async fn get_default_download_dir(own_folder: Option<bool>) -> Result<String, String> {
     let home = std::env::var("USERPROFILE")
@@ -1225,14 +1082,9 @@ pub async fn open_in_file_manager(path: String) -> Result<(), String> {
     {
         let _ = std::process::Command::new("explorer").arg(&path).spawn();
     }
-    #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
+    #[cfg(not(target_os = "windows"))]
     {
         let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
-    }
-    #[cfg(target_os = "android")]
-    {
-        // No general-purpose file manager on stock Android; nothing to do.
-        let _ = path;
     }
     Ok(())
 }

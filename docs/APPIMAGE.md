@@ -61,8 +61,7 @@ ordem (`find_ytdlp` / `find_ffmpeg` em `src-tauri/src/commands.rs`):
 
 Na prática, o AppImage sempre acha as dependências no item 2 e nunca precisa
 baixar nada. O item 1 existe para os casos em que elas faltam — uma instalação
-via `.deb`, ou o usuário apagou os arquivos — e é o mesmo mecanismo que o
-Android já usava.
+via `.deb`, ou o usuário apagou os arquivos.
 
 ### `LD_LIBRARY_PATH`
 
@@ -78,7 +77,7 @@ yt-dlp. O ffmpeg é estático e não é afetado.
 
 | Arquivo | Papel |
 |---------|-------|
-| `src-tauri/src/linux_setup.rs` | baixa/instala `yt-dlp` + `ffmpeg` no primeiro uso, com os mesmos eventos `setup-progress` do Android |
+| `src-tauri/src/linux_setup.rs` | baixa/instala `yt-dlp` + `ffmpeg` no primeiro uso, com eventos `setup-progress` para o overlay do frontend |
 | `src-tauri/tauri.linux.conf.json` | overlay de configuração só do Linux: embute `src-tauri/bin/*` em `deps/` e restringe o bundle a `appimage` |
 | `scripts/build-appimage.sh` | build local (baixa as deps, instala pacotes de sistema, compila) |
 | `.github/workflows/build.yml` | job `build-linux` |
@@ -119,7 +118,7 @@ voltar a ser qualquer coisa que não colida com ele.
 ## Testes
 
 `cargo test --lib` roda os testes de sempre. O teste do extrator do ffmpeg segue
-o padrão `DEB_FIXTURE` que o projeto já usava no Android: ele só roda quando a
+o padrão `FFMPEG_FIXTURE`: ele só roda quando a
 variável aponta para um arquivo real, e aí extrai, confere o bit de execução e
 **executa** o binário extraído.
 

@@ -25,8 +25,7 @@ tokio = { version = "1", features = ["full"] }
 # .tar.xz do ffmpeg em streaming, sem carregar os ~40 MB na memória.
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "stream"] }
 regex-lite = "0.1"
-# Android auto-setup: gunzip the Termux index and extract the .deb packages
-flate2 = "1"
+# Linux auto-setup: extract the static ffmpeg .tar.xz
 xz2 = "0.1"
 tar = { version = "0.4", default-features = false }
 # Linux auto-setup: stream the static ffmpeg .tar.xz (already in the tree

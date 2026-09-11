@@ -1,18 +1,10 @@
 mod commands;
 
-/// First-run automatic dependency setup (Termux python + ffmpeg) on Android.
-/// Compiled on all targets so desktop CI compile-guards it and host `cargo
-/// test` can round-trip a real .deb (see `android_setup::tests`).
-#[cfg_attr(not(target_os = "android"), allow(dead_code))]
-mod android_setup;
-
 /// First-run automatic dependency setup (standalone yt-dlp + static ffmpeg)
-/// on Linux desktop. Compiled on all targets so the Android build still
-/// compile-guards it.
+/// on Linux desktop.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod linux_setup;
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

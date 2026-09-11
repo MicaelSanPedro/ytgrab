@@ -119,6 +119,15 @@ function App() {
   const setupRunningRef = useRef(false);
   const setupUnlistenRef = useRef<(() => void) | null>(null);
 
+  // Créditos no rodapé: o EXE (Windows) é assinado pelo Micael San e o
+  // AppImage (Linux) pelo Lucas. Link azul clicável para o GitHub de cada um.
+  const creditWin =
+    platform === "windows" || (!platform && /windows/i.test(navigator.userAgent));
+  const creditName = creditWin ? "Micael San" : "lucasgabrieldevgg";
+  const creditUrl = creditWin
+    ? "https://github.com/MicaelSanPedro"
+    : "https://github.com/lucasgabrieldevgg";
+
   useEffect(() => {
     // Resolve a pasta inicial conforme a configuração de pasta própria
     const initDir = async () => {
@@ -1218,6 +1227,27 @@ function App() {
         >
           {t("reinstall")}
         </button>
+      </div>
+
+      {/* Créditos — azul clicável, abre o GitHub no navegador */}
+      <div style={{ marginTop: 12, textAlign: "center", fontSize: 11, color: T.sub }}>
+        {t("madeBy")}{" "}
+        <a
+          href={creditUrl}
+          onClick={(e) => {
+            e.preventDefault();
+            openUrl(creditUrl).catch(console.error);
+          }}
+          style={{
+            color: "#3b82f6",
+            fontWeight: 600,
+            textDecoration: "none",
+            cursor: "pointer",
+          }}
+          title={creditUrl}
+        >
+          {creditName}
+        </a>
       </div>
     </div>
   );

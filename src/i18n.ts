@@ -53,6 +53,7 @@ const pt: Dict = {
   checkingUpdate: "Verificando atualizações...",
   firstRunTitle: "Bem-vindo! Configure o YTGrab",
   firstRunHint: "Você pode mudar tudo depois no botão ⚙.",
+  madeBy: "Feito por",
 };
 
 const en: Dict = {
@@ -99,6 +100,7 @@ const en: Dict = {
   checkingUpdate: "Checking for updates...",
   firstRunTitle: "Welcome! Set up YTGrab",
   firstRunHint: "You can change everything later with the ⚙ button.",
+  madeBy: "Made by",
 };
 
 const DICTS: Record<Lang, Dict> = { pt, en };
