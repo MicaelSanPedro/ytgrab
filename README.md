@@ -14,6 +14,10 @@
 
 ## ⬇️ Downloads
 
+| | |
+|---|---|
+| 🌐 **Site (beta)** | [ytgrab em github.io](https://micaelsanpedro.github.io/ytgrab/) — use direto no navegador (código em [`site/`](site)) |
+
 Baixe sempre a versão mais recente na [página de releases](https://github.com/MicaelSanPedro/ytgrab/releases):
 
 | Sistema | Arquivo | Como instalar |
