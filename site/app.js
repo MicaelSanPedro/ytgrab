@@ -1,8 +1,9 @@
-/* YTGrab Web — frontend estático (GitHub Pages).
- * O download em si é feito por um backend configurável:
- *  - Cobalt (recomendado): instância própria grátis no Render (guia embutido)
- *  - Invidious: instâncias públicas (instáveis, sem cadastro)
- */
+/* ============================================================
+ * YTGrab Web — 100% automático.
+ * O site se conecta sozinho a servidores públicos gratuitos
+ * (Piped e Invidious) com fallback: um falhou, tenta o próximo.
+ * Nenhuma configuração é necessária.
+ * ============================================================ */
 
 const I18N = {
   pt: {
@@ -10,170 +11,248 @@ const I18N = {
     getInfo: "Buscar",
     download: "Baixar",
     downloading: "Baixando",
-    tabVideo: "Vídeo (MP4)",
+    tabVideo: "Vídeo",
     tabAudio: "Áudio",
     quality: "Qualidade:",
     audioFormat: "Formato:",
-    audioBitrate: "Bitrate:",
     settings: "Configurações",
-    backendType: "Servidor (backend)",
-    backendUrl: "Endereço do servidor",
-    test: "Testar",
-    testing: "Testando...",
-    tryPublic: "Ou tente uma instância pública (instável):",
-    howToSetup: "📖 Como criar o seu servidor Cobalt de graça (5 min)",
-    save: "Salvar",
+    language: "Idioma",
+    theme: "Tema",
+    themeDark: "Escuro",
+    themeLight: "Claro",
+    reconnect: "Reconectar",
     close: "Fechar",
     madeBy: "Feito por",
-    getTheApp: "Prefere o app?",
-    downloadApp: "Baixe o YTGrab",
-    androidApp: "App Android (TuneGrab)",
     urlPlaceholder: "Cole o link do YouTube aqui...",
-    needBackendTitle: "⚠️ Configure um servidor primeiro",
-    needBackendText: "O navegador não consegue falar com o YouTube diretamente (bloqueio de CORS). O site precisa de um servidor gratuito para extrair os vídeos — o seu, ou uma instância pública. Leva 2 minutinhos. ⚙️",
     invalidUrl: "Link do YouTube inválido.",
+    connecting: "conectando…",
+    connected: "conectado",
+    noServer: "nenhum servidor respondeu — clique para tentar de novo",
+    switching: "servidor instável, trocando…",
     fetching: "Buscando informações do vídeo...",
-    fetchError: "Não consegui falar com o servidor. Verifique o endereço nas configurações (⚙️).",
-    noBackend: "Nenhum servidor configurado — abra as configurações (⚙️).",
-    readyToDownload: "Pronto! Escolha o formato/qualidade e clique em Baixar. (O título e as opções aparecem após o download começar.)",
+    noFormats: "Nenhuma qualidade disponível nesse vídeo.",
     downloadStarted: "Download iniciado!",
-    done: "Download concluído! Confira a pasta de downloads.",
-    openedNewTab: "Abri o arquivo em uma nova aba — use Ctrl+S (ou o menu ⋮) para salvar.",
-    errGeneric: "O servidor retornou um erro: ",
-    errBot: "O YouTube bloqueou o servidor temporariamente (detecção de bot). Tente de novo em alguns minutos ou troque de servidor (⚙️).",
-    errInstance: "Instância offline ou indisponível. Tente outra em ⚙️.",
-    maxQuality: "Máxima (recomendado)",
-    backendOk: "✅ Servidor online!",
-    backendFail: "❌ Não respondeu. Confira o endereço ou tente outra instância.",
-    saved: "Configurações salvas ✅",
-    guideHtml: `<ol>
-      <li>Crie uma conta grátis em <a href="https://render.com" target="_blank">render.com</a> (pode entrar com o GitHub).</li>
-      <li><b>New → Web Service</b> → conecte um repositório público qualquer (ou faça fork do <a href="https://github.com/imputnet/cobalt" target="_blank">cobalt</a>).</li>
-      <li>Runtime: <b>Docker</b>, com o Dockerfile: <pre>FROM ghcr.io/imputnet/cobalt:latest</pre></li>
-      <li>Em <b>Environment</b> defina: <code>API_URL=https://SEU-NOME.onrender.com/</code> e <code>API_PORT=9000</code>.</li>
-      <li>Plano <b>Free</b> → Create. Em ~2 min o deploy termina.</li>
-      <li>Cole <code>https://SEU-NOME.onrender.com</code> aqui em cima e clique em <b>Testar</b>. 🎉</li>
-    </ol>
-    <p class="sub">O plano free "adormece" sem uso — o primeiro download pode demorar ~1 min para acordar.</p>`,
+    done: "Download concluído! Confira a pasta de downloads. ✅",
+    openedNewTab: "Abri o arquivo em nova aba — use Ctrl+S para salvar.",
+    errFetch: "Não consegui buscar esse vídeo (o servidor pode estar sobrecarregado). Tente de novo.",
+    errServer: "Todos os servidores públicos estão ocupados agora 😴 — tente novamente em alguns instantes.",
+    currentServer: "Servidor atual:",
+    bestQuality: "Máxima",
   },
   en: {
     tagline: "Download YouTube videos and music",
     getInfo: "Search",
     download: "Download",
     downloading: "Downloading",
-    tabVideo: "Video (MP4)",
+    tabVideo: "Video",
     tabAudio: "Audio",
     quality: "Quality:",
     audioFormat: "Format:",
-    audioBitrate: "Bitrate:",
     settings: "Settings",
-    backendType: "Server (backend)",
-    backendUrl: "Server address",
-    test: "Test",
-    testing: "Testing...",
-    tryPublic: "Or try a public instance (unstable):",
-    howToSetup: "📖 How to create your own free Cobalt server (5 min)",
-    save: "Save",
+    language: "Language",
+    theme: "Theme",
+    themeDark: "Dark",
+    themeLight: "Light",
+    reconnect: "Reconnect",
     close: "Close",
     madeBy: "Made by",
-    getTheApp: "Prefer the app?",
-    downloadApp: "Get YTGrab",
-    androidApp: "Android app (TuneGrab)",
     urlPlaceholder: "Paste the YouTube link here...",
-    needBackendTitle: "⚠️ Set up a server first",
-    needBackendText: "Browsers can't talk to YouTube directly (CORS). The site needs a free server to extract videos — your own, or a public instance. It takes 2 minutes. ⚙️",
     invalidUrl: "Invalid YouTube link.",
+    connecting: "connecting…",
+    connected: "connected",
+    noServer: "no server responded — click to retry",
+    switching: "unstable server, switching…",
     fetching: "Fetching video info...",
-    fetchError: "Could not reach the server. Check the address in settings (⚙️).",
-    noBackend: "No server configured — open settings (⚙️).",
-    readyToDownload: "Ready! Pick a format/quality and hit Download. (Title and options appear after the download starts.)",
+    noFormats: "No quality available for this video.",
     downloadStarted: "Download started!",
-    done: "Download complete! Check your downloads folder.",
-    openedNewTab: "Opened the file in a new tab — use Ctrl+S (or the ⋮ menu) to save it.",
-    errGeneric: "The server returned an error: ",
-    errBot: "YouTube temporarily blocked the server (bot detection). Try again in a few minutes or switch servers (⚙️).",
-    errInstance: "Instance offline or unavailable. Try another one in ⚙️.",
-    maxQuality: "Best (recommended)",
-    backendOk: "✅ Server online!",
-    backendFail: "❌ No response. Check the address or try another instance.",
-    saved: "Settings saved ✅",
-    guideHtml: `<ol>
-      <li>Create a free account at <a href="https://render.com" target="_blank">render.com</a> (GitHub login works).</li>
-      <li><b>New → Web Service</b> → connect any public repo (or fork <a href="https://github.com/imputnet/cobalt" target="_blank">cobalt</a>).</li>
-      <li>Runtime: <b>Docker</b>, with the Dockerfile: <pre>FROM ghcr.io/imputnet/cobalt:latest</pre></li>
-      <li>Under <b>Environment</b> set: <code>API_URL=https://YOUR-NAME.onrender.com/</code> and <code>API_PORT=9000</code>.</li>
-      <li>Plan <b>Free</b> → Create. Deploy finishes in ~2 min.</li>
-      <li>Paste <code>https://YOUR-NAME.onrender.com</code> above and click <b>Test</b>. 🎉</li>
-    </ol>
-    <p class="sub">The free plan sleeps when idle — the first download may take ~1 min to wake it up.</p>`,
+    done: "Download complete! Check your downloads folder. ✅",
+    openedNewTab: "Opened the file in a new tab — press Ctrl+S to save.",
+    errFetch: "Could not fetch this video (server may be busy). Please retry.",
+    errServer: "All public servers are busy right now 😴 — try again in a few moments.",
+    currentServer: "Current server:",
+    bestQuality: "Best",
   },
 };
 
-const PUBLIC_INSTANCES = [
-  "https://invidious.f5.si",
-  "https://yewtu.be",
-  "https://inv.nadeko.net",
-  "https://iv.ggtyler.dev",
+/* Candidatos hardcoded (testados) — a ordem é a prioridade do fallback */
+const STATIC_CANDIDATES = [
+  { engine: "piped", base: "https://api.piped.private.coffee" },
+  { engine: "piped", base: "https://pipedapi.ducks.party" },
+  { engine: "piped", base: "https://pipedapi.darkness.services" },
+  { engine: "piped", base: "https://piped-api.codespace.cz" },
+  { engine: "piped", base: "https://pipedapi.kavin.rocks" },
+  { engine: "piped", base: "https://pipedapi.leptons.xyz" },
+  { engine: "piped", base: "https://pipedapi.reallyaweso.me" },
+  { engine: "piped", base: "https://pipedapi.orangenet.cc" },
+  { engine: "piped", base: "https://pipedapi.adminforge.de" },
+  { engine: "piped", base: "https://api.piped.yt" },
+  { engine: "piped", base: "https://pipedapi.drgns.space" },
+  { engine: "piped", base: "https://pipedapi.owo.si" },
+  { engine: "piped", base: "https://piped-api.privacy.com.de" },
+  { engine: "piped", base: "https://pipedapi.nosebs.ru" },
+  { engine: "piped", base: "https://pipedapi-libre.kavin.rocks" },
+  { engine: "invidious", base: "https://inv.nadeko.net" },
+  { engine: "invidious", base: "https://invidious.f5.si" },
+  { engine: "invidious", base: "https://invidious.nerdvpn.de" },
+  { engine: "invidious", base: "https://yt.chocolatemoo53.com" },
+  { engine: "invidious", base: "https://invidious.tiekoetter.com" },
 ];
+
+/* Listas dinâmicas: mantêm o site atualizado sem novo deploy */
+const DYNAMIC_SOURCES = [
+  {
+    url: "https://piped-instances.kavin.rocks/",
+    parse: (d) => (Array.isArray(d) ? d : []).map((i) => ({ engine: "piped", base: (i.api_url || "").replace(/\/+$/, "") })).filter((i) => i.base),
+  },
+  {
+    url: "https://api.invidious.io/instances.json?sort_by=health",
+    parse: (d) =>
+      (Array.isArray(d) ? d : [])
+        .map((x) => (Array.isArray(x) ? { name: x[0], info: x[1] } : null))
+        .filter((x) => x && (x.info || {}).uri && /^https:\/\/[^/]+$/.test(x.info.uri))
+        .filter((x) => !/\.(onion|i2p|ygg)$/.test(x.name))
+        .map((x) => ({ engine: "invidious", base: x.info.uri })),
+  },
+];
+
+const TEST_VIDEO = "jNQXAC9IVRw"; // "Me at the zoo" — leve e eterno
 
 const $ = (id) => document.getElementById(id);
 
 const state = {
   lang: localStorage.getItem("ytgrabweb_lang") || "pt",
   theme: localStorage.getItem("ytgrabweb_theme") || "dark",
-  backend: JSON.parse(localStorage.getItem("ytgrabweb_backend") || '{"type":"invidious","url":""}'),
+  candidates: [],
+  idx: -1, // índice do servidor ativo
+  info: null, // { title, duration, thumbnail, videos: [], audios: [] }
   videoId: "",
-  info: null, // resposta do invidious (quando houver)
-  mode: "video", // video | audio
+  mode: "video",
   busy: false,
+  connecting: null, // Promise ativa de conexão
 };
 
 function t(key) { return I18N[state.lang][key] ?? key; }
+function active() { return state.idx >= 0 ? state.candidates[state.idx] : null; }
 
-function applyI18n() {
-  document.documentElement.lang = state.lang === "pt" ? "pt-BR" : "en";
-  $("tagline").textContent = t("tagline");
-  $("urlInput").placeholder = t("urlPlaceholder");
-  $("needBackendTitle").textContent = t("needBackendTitle");
-  $("needBackendText").textContent = t("needBackendText");
-  document.querySelectorAll("[data-i18n]").forEach((el) => {
-    el.textContent = t(el.dataset.i18n);
-  });
-  $("setupGuide").innerHTML = t("guideHtml");
-  $("backendType").value = state.backend.type;
-  $("backendUrl").value = state.backend.url;
-  updateVideoQualityOptions();
+function setChip(cls, text) {
+  const chip = $("connChip");
+  chip.className = "chip" + (cls ? " " + cls : "");
+  $("connText").textContent = text;
 }
 
-function applyTheme() {
-  document.documentElement.dataset.theme = state.theme;
-  $("btnTheme").textContent = state.theme === "dark" ? "🌙" : "☀️";
+/* ------------------------------ Conexão ------------------------------ */
+
+function fetchWithTimeout(url, opts = {}, ms = 8000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(timer));
 }
 
-function saveBackend() {
-  localStorage.setItem("ytgrabweb_backend", JSON.stringify(state.backend));
+async function testCandidate(c) {
+  try {
+    const url =
+      c.engine === "piped"
+        ? `${c.base}/streams/${TEST_VIDEO}`
+        : `${c.base}/api/v1/videos/${TEST_VIDEO}?fields=title`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return false;
+    const j = await res.json();
+    return Boolean(j.title);
+  } catch {
+    return false;
+  }
 }
 
-function updateBackendWarning() {
-  $("needBackend").classList.toggle("hidden", !!state.backend.url);
+async function buildCandidateList() {
+  const list = [...STATIC_CANDIDATES];
+  const seen = new Set(list.map((c) => c.base));
+  // Listas dinâmicas em paralelo, sem travar a inicialização
+  const dyn = await Promise.allSettled(
+    DYNAMIC_SOURCES.map(async (src) => {
+      const res = await fetchWithTimeout(src.url, {}, 6000);
+      if (!res.ok) return [];
+      return src.parse(await res.json());
+    })
+  );
+  for (const r of dyn) {
+    if (r.status !== "fulfilled") continue;
+    for (const c of r.value) {
+      if (!seen.has(c.base)) {
+        seen.add(c.base);
+        list.push(c);
+      }
+    }
+  }
+  return list;
 }
+
+async function connect(force = false) {
+  if (state.connecting && !force) return state.connecting;
+  state.connecting = (async () => {
+    setChip("", t("connecting"));
+    if (!state.candidates.length || force) {
+      state.candidates = await buildCandidateList();
+    }
+    // Testa em lotes de 3: o primeiro que responder ganha
+    for (let i = 0; i < state.candidates.length; i += 3) {
+      const batch = state.candidates.slice(i, i + 3);
+      const results = await Promise.all(batch.map(testCandidate));
+      const hit = results.indexOf(true);
+      if (hit !== -1) {
+        state.idx = i + hit;
+        setChip("ok", `${t("connected")} · ${shortHost(active().base)}`);
+        updateServerInfo();
+        return true;
+      }
+    }
+    state.idx = -1;
+    setChip("err", t("noServer"));
+    updateServerInfo();
+    return false;
+  })();
+  try {
+    return await state.connecting;
+  } finally {
+    state.connecting = null;
+  }
+}
+
+/* Avança para o próximo servidor da lista (fallback automático) */
+async function nextServer() {
+  const start = state.idx;
+  setChip("", t("switching"));
+  for (let i = start + 1; i < state.candidates.length; i++) {
+    if (await testCandidate(state.candidates[i])) {
+      state.idx = i;
+      setChip("ok", `${t("connected")} · ${shortHost(active().base)}`);
+      updateServerInfo();
+      return true;
+    }
+  }
+  // Deu a volta e ninguém respondeu: tenta reconectar do zero
+  state.idx = -1;
+  return connect(true);
+}
+
+function shortHost(base) {
+  return base.replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+}
+
+function updateServerInfo() {
+  const a = active();
+  $("serverInfo").textContent = `${t("currentServer")} ${a ? shortHost(a.base) : "—"}`;
+}
+
+/* ------------------------------ Extração ------------------------------ */
 
 function extractVideoId(url) {
-  const m = url.match(
-    /(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/
-  );
+  const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/);
   return m ? m[1] : null;
-}
-
-function setStatus(msg, cls = "") {
-  const el = $("statusMsg");
-  el.textContent = msg;
-  el.className = "status " + cls;
 }
 
 function fmtDuration(sec) {
   const m = Math.floor(sec / 60);
-  const s = String(sec % 60).padStart(2, "0");
+  const s = String(Math.floor(sec % 60)).padStart(2, "0");
   return `${m}:${s}`;
 }
 
@@ -181,78 +260,122 @@ function sanitizeFilename(name) {
   return (name || "ytgrab").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 120);
 }
 
-/* ------------------------- Backend: Invidious ------------------------- */
-
-async function invidiousFetchInfo(videoId) {
-  const base = state.backend.url.replace(/\/+$/, "");
-  const res = await fetch(
-    `${base}/api/v1/videos/${videoId}?local=true&fields=title,lengthSeconds,thumbnails,format_streams,adaptiveFormats`
-  );
+async function getInfoPiped(base, id) {
+  const res = await fetchWithTimeout(`${base}/streams/${id}`, {}, 15000);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const d = await res.json();
+  if (d.error) throw new Error(d.error);
+
+  const videos = (d.videoStreams || [])
+    .filter((v) => v.url && v.videoOnly === false) // com áudio junto
+    .map((v) => ({
+      label: v.quality || "?",
+      url: v.url,
+      ext: (v.mimeType || "").includes("webm") ? "webm" : "mp4",
+    }));
+  const seen = new Set();
+  const uniqVideos = videos.filter((v) => (seen.has(v.label) ? false : seen.add(v.label)));
+
+  const audios = (d.audioStreams || [])
+    .filter((a) => a.url)
+    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
+    .map((a) => ({
+      label: `${(a.mimeType || "").includes("mp4") ? "M4A" : "OPUS"}${a.bitrate ? " · " + Math.round(a.bitrate / 1000) + " kbps" : ""}`,
+      url: a.url,
+      ext: (a.mimeType || "").includes("mp4") ? "m4a" : "opus",
+    }));
+
+  return {
+    title: d.title || "",
+    duration: d.duration || 0,
+    thumbnail: d.thumbnailUrl || "",
+    videos: uniqVideos,
+    audios,
+  };
 }
 
-function fillInvidiousOptions() {
-  const info = state.info;
+async function getInfoInvidious(base, id) {
+  const res = await fetchWithTimeout(
+    `${base}/api/v1/videos/${id}?local=true&fields=title,lengthSeconds,thumbnails,format_streams,adaptiveFormats`,
+    {},
+    15000
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const d = await res.json();
+
+  const videos = (d.format_streams || [])
+    .filter((f) => f.url)
+    .map((f) => ({
+      label: `${f.qualityLabel || "?"} · ${(f.container || "mp4").toUpperCase()}`,
+      url: f.url,
+      ext: (f.container || "mp4").toLowerCase(),
+    }));
+
+  const audios = (d.adaptiveFormats || [])
+    .filter((f) => f.url && (f.type || "").startsWith("audio/"))
+    .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))
+    .slice(0, 6)
+    .map((f) => ({
+      label: `${(f.type || "").includes("mp4") ? "M4A" : "OPUS"}${f.bitrate ? " · " + Math.round(f.bitrate / 1000) + " kbps" : ""}`,
+      url: f.url,
+      ext: (f.type || "").includes("mp4") ? "m4a" : "webm",
+    }));
+
+  const thumbs = d.thumbnails || [];
+  return {
+    title: d.title || "",
+    duration: d.lengthSeconds || 0,
+    thumbnail: thumbs.length ? thumbs[thumbs.length - 1].url : "",
+    videos,
+    audios,
+  };
+}
+
+async function getInfo(id) {
+  const a = active();
+  if (!a) throw new Error("no-server");
+  return a.engine === "piped" ? getInfoPiped(a.base, id) : getInfoInvidious(a.base, id);
+}
+
+/* ------------------------------ Interface ----------------------------- */
+
+function setStatus(msg, cls = "") {
+  const el = $("statusMsg");
+  el.textContent = msg;
+  el.className = "status " + cls;
+}
+
+function fillOptions() {
   const vq = $("videoQuality");
   vq.innerHTML = "";
-  (info.format_streams || [])
-    .sort((a, b) => parseInt(b.qualityLabel) - parseInt(a.qualityLabel))
-    .forEach((f) => {
-      const o = document.createElement("option");
-      o.value = f.itag;
-      o.textContent = `${f.qualityLabel} · ${f.container?.toUpperCase?.() || "MP4"}`;
-      vq.appendChild(o);
-    });
+  state.info.videos.forEach((v, i) => {
+    const o = document.createElement("option");
+    o.value = i;
+    o.textContent = v.label;
+    vq.appendChild(o);
+  });
 
   const af = $("audioFormat");
   af.innerHTML = "";
-  const audios = (info.adaptiveFormats || []).filter((f) =>
-    (f.type || "").startsWith("audio/")
-  );
-  const seen = new Set();
-  audios.forEach((f) => {
-    const label = (f.type || "").includes("mp4") ? "M4A" : "OPUS";
-    if (seen.has(label + f.bitrate)) return;
-    seen.add(label + f.bitrate);
+  state.info.audios.forEach((a, i) => {
     const o = document.createElement("option");
-    o.value = f.itag;
-    o.textContent = `${label} · ${Math.round((f.bitrate || 0) / 1000)} kbps`;
+    o.value = i;
+    o.textContent = a.label;
     af.appendChild(o);
   });
-  $("audioBitrate").classList.add("hidden"); // bitrate já vem embutido no stream
+
+  const hasVideo = state.info.videos.length > 0;
+  const hasAudio = state.info.audios.length > 0;
+  if (!hasVideo && hasAudio) {
+    $("tabVideo").disabled = true;
+    $("tabAudio").click();
+  } else if (!hasAudio && hasVideo) {
+    $("tabAudio").disabled = true;
+  } else if (hasVideo) {
+    $("tabVideo").disabled = false;
+    $("tabAudio").disabled = false;
+  }
 }
-
-/* -------------------------- Backend: Cobalt -------------------------- */
-
-async function cobaltRequest(videoUrl, body) {
-  const base = state.backend.url.replace(/\/+$/, "");
-  const res = await fetch(`${base}/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ url: videoUrl, ...body }),
-  });
-  if (!res.ok && res.status !== 400) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
-function updateVideoQualityOptions() {
-  if (state.backend.type !== "cobalt") return;
-  const vq = $("videoQuality");
-  const cur = vq.value;
-  vq.innerHTML = "";
-  [["max", t("maxQuality")], ["2160", "4K (2160p)"], ["1440", "1440p"], ["1080", "1080p"], ["720", "720p"], ["480", "480p"], ["360", "360p"], ["240", "240p"], ["144", "144p"]]
-    .forEach(([v, label]) => {
-      const o = document.createElement("option");
-      o.value = v;
-      o.textContent = label;
-      vq.appendChild(o);
-    });
-  vq.value = cur && [...vq.options].some((o) => o.value === cur) ? cur : "max";
-  $("audioBitrate").classList.remove("hidden");
-}
-
-/* ------------------------------ Download ------------------------------ */
 
 async function blobDownload(url, filename) {
   const res = await fetch(url);
@@ -284,11 +407,6 @@ async function blobDownload(url, filename) {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 
-function fallbackOpen(url) {
-  window.open(url, "_blank", "noopener");
-  setStatus(t("openedNewTab"), "ok");
-}
-
 async function saveFile(url, filename) {
   $("progressWrap").classList.remove("hidden");
   $("progressFill").style.width = "4%";
@@ -298,7 +416,8 @@ async function saveFile(url, filename) {
     $("progressFill").style.width = "100%";
     setStatus(t("done"), "ok");
   } catch {
-    fallbackOpen(url);
+    window.open(url, "_blank", "noopener");
+    setStatus(t("openedNewTab"), "ok");
   } finally {
     setTimeout(() => $("progressWrap").classList.add("hidden"), 1500);
   }
@@ -311,36 +430,43 @@ async function doFetch() {
   const url = $("urlInput").value.trim();
   const id = extractVideoId(url);
   if (!id) return setStatus(t("invalidUrl"), "err");
-  if (!state.backend.url) return setStatus(t("noBackend"), "err");
 
-  state.videoId = id;
-  state.info = null;
   state.busy = true;
   $("btnFetch").disabled = true;
   setStatus(t("fetching"));
 
   try {
-    if (state.backend.type === "invidious") {
-      state.info = await invidiousFetchInfo(id);
-      $("thumb").src =
-        (state.info.thumbnails || []).slice(-1)[0]?.url ||
-        `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-      $("videoTitle").textContent = state.info.title || "";
-      $("videoDuration").textContent = fmtDuration(state.info.lengthSeconds || 0);
-      fillInvidiousOptions();
-    } else {
-      $("thumb").src = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-      $("videoTitle").textContent = "YouTube · " + id;
-      $("videoDuration").textContent = t("readyToDownload");
-      updateVideoQualityOptions();
+    if (!active()) {
+      const ok = await connect();
+      if (!ok) throw new Error("no-server");
     }
+
+    let info;
+    try {
+      info = await getInfo(id);
+    } catch (e) {
+      // fallback automático: troca de servidor e tenta de novo
+      if (e.message === "no-server") throw e;
+      const switched = await nextServer();
+      if (!switched) throw new Error("no-server");
+      info = await getInfo(id);
+    }
+
+    if (!info.videos.length && !info.audios.length) {
+      setStatus(t("noFormats"), "err");
+      return;
+    }
+
+    state.videoId = id;
+    state.info = info;
+    $("thumb").src = info.thumbnail || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+    $("videoTitle").textContent = info.title;
+    $("videoDuration").textContent = info.duration ? fmtDuration(info.duration) : "";
+    fillOptions();
     $("result").classList.remove("hidden");
     setStatus("");
   } catch (e) {
-    setStatus(
-      state.backend.type === "invidious" ? t("errInstance") : t("fetchError"),
-      "err"
-    );
+    setStatus(e.message === "no-server" ? t("errServer") : t("errFetch"), "err");
     console.error(e);
   } finally {
     state.busy = false;
@@ -349,47 +475,19 @@ async function doFetch() {
 }
 
 async function doDownload() {
-  if (state.busy || !state.videoId) return;
-  const url = `https://www.youtube.com/watch?v=${state.videoId}`;
+  if (state.busy || !state.info) return;
   state.busy = true;
   $("btnDownload").disabled = true;
   setStatus("");
   try {
-    if (state.backend.type === "invidious") {
-      const itag = state.mode === "video" ? $("videoQuality").value : $("audioFormat").value;
-      const all = [...(state.info.format_streams || []), ...(state.info.adaptiveFormats || [])];
-      const stream = all.find((f) => String(f.itag) === String(itag));
-      if (!stream) throw new Error("stream não encontrado");
-      const ext = (stream.container || ((stream.type || "").includes("mp4") ? "m4a" : "webm")).toLowerCase();
-      await saveFile(stream.url, `${sanitizeFilename(state.info.title)}.${ext}`);
-    } else {
-      const body =
-        state.mode === "video"
-          ? { downloadMode: "auto", videoQuality: $("videoQuality").value }
-          : {
-              downloadMode: "audio",
-              audioFormat: $("audioFormat").value,
-              audioBitrate: $("audioBitrate").value,
-            };
-      const r = await cobaltRequest(url, body);
-      if (r.status === "error") {
-        const code = r.error?.code || "";
-        if (code.includes("bot")) setStatus(t("errBot"), "err");
-        else setStatus(t("errGeneric") + code, "err");
-        return;
-      }
-      if (r.status === "picker" && r.picker?.length) {
-        // vídeos com vários clipes: baixa o primeiro
-        const pick = r.picker[0];
-        await saveFile(pick.url, pick.filename || `ytgrab_${state.videoId}.mp4`);
-      } else if (r.url) {
-        await saveFile(r.url, r.filename || `ytgrab_${state.videoId}.mp4`);
-      } else {
-        setStatus(t("errGeneric") + JSON.stringify(r).slice(0, 120), "err");
-      }
-    }
+    const item =
+      state.mode === "video"
+        ? state.info.videos[parseInt($("videoQuality").value, 10)]
+        : state.info.audios[parseInt($("audioFormat").value, 10)];
+    if (!item) throw new Error("no-format");
+    await saveFile(item.url, `${sanitizeFilename(state.info.title)}.${item.ext}`);
   } catch (e) {
-    setStatus(t("fetchError") + " (" + e.message + ")", "err");
+    setStatus(t("errFetch"), "err");
     console.error(e);
   } finally {
     state.busy = false;
@@ -397,68 +495,27 @@ async function doDownload() {
   }
 }
 
-async function testBackend(type, url) {
-  const el = $("backendTestResult");
-  el.textContent = t("testing");
-  el.className = "status";
-  const base = url.replace(/\/+$/, "");
-  try {
-    if (type === "cobalt") {
-      const res = await fetch(`${base}/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ url: "https://www.youtube.com/watch?v=jNQXAC9IVRw", downloadMode: "audio", audioFormat: "mp3" }),
-      });
-      const j = await res.json().catch(() => ({}));
-      // auth necessária ou erro de rede => falha; status tunnel/redirect/erro do youtube => API viva
-      if (j.status === "error" && String(j.error?.code || "").includes("auth")) {
-        el.textContent = t("backendFail") + " (JWT)";
-        el.className = "status err";
-        return false;
-      }
-      el.textContent = t("backendOk");
-      el.className = "status ok";
-      return true;
-    }
-    const res = await fetch(`${base}/api/v1/videos/jNQXAC9IVRw?fields=title`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    await res.json();
-    el.textContent = t("backendOk");
-    el.className = "status ok";
-    return true;
-  } catch {
-    el.textContent = t("backendFail");
-    el.className = "status err";
-    return false;
-  }
+/* -------------------------------- i18n -------------------------------- */
+
+function applyI18n() {
+  document.documentElement.lang = state.lang === "pt" ? "pt-BR" : "en";
+  $("tagline").textContent = t("tagline");
+  $("urlInput").placeholder = t("urlPlaceholder");
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  $("langSelect").value = state.lang;
+  $("themeSelect").value = state.theme;
+  updateServerInfo();
+  const chip = $("connChip");
+  if (chip.classList.contains("ok") && active()) setChip("ok", `${t("connected")} · ${shortHost(active().base)}`);
+  else if (chip.classList.contains("err")) setChip("err", t("noServer"));
+  else setChip("", t("connecting"));
 }
 
-/* ------------------------------ Instâncias ----------------------------- */
-
-function renderInstanceList() {
-  const box = $("instanceList");
-  box.innerHTML = "";
-  PUBLIC_INSTANCES.forEach((inst) => {
-    const row = document.createElement("div");
-    row.className = "instance-item";
-    row.innerHTML = `<code>${inst}</code>`;
-    const btn = document.createElement("button");
-    btn.className = "btn";
-    btn.textContent = t("test");
-    btn.onclick = async () => {
-      $("backendType").value = "invidious";
-      $("backendUrl").value = inst;
-      const ok = await testBackend("invidious", inst);
-      if (ok) {
-        state.backend = { type: "invidious", url: inst };
-        saveBackend();
-        updateBackendWarning();
-        setStatus(t("saved"), "ok");
-      }
-    };
-    row.appendChild(btn);
-    box.appendChild(row);
-  });
+function applyTheme() {
+  document.documentElement.dataset.theme = state.theme;
+  $("btnTheme").textContent = state.theme === "dark" ? "🌙" : "☀️";
 }
 
 /* -------------------------------- Init -------------------------------- */
@@ -466,46 +523,37 @@ function renderInstanceList() {
 function init() {
   applyTheme();
   applyI18n();
-  updateBackendWarning();
-  renderInstanceList();
 
   $("btnTheme").onclick = () => {
     state.theme = state.theme === "dark" ? "light" : "dark";
     localStorage.setItem("ytgrabweb_theme", state.theme);
     applyTheme();
+    $("themeSelect").value = state.theme;
   };
   $("btnLang").onclick = () => {
     state.lang = state.lang === "pt" ? "en" : "pt";
     localStorage.setItem("ytgrabweb_lang", state.lang);
     applyI18n();
-    renderInstanceList();
-    updateBackendWarning();
   };
-  $("btnSettings").onclick = () => {
-    $("settingsModal").classList.remove("hidden");
-    $("backendType").value = state.backend.type;
-    $("backendUrl").value = state.backend.url;
+  $("langSelect").onchange = (e) => {
+    state.lang = e.target.value;
+    localStorage.setItem("ytgrabweb_lang", state.lang);
+    applyI18n();
   };
-  $("btnOpenSettingsFromWarn").onclick = () => $("btnSettings").click();
+  $("themeSelect").onchange = (e) => {
+    state.theme = e.target.value;
+    localStorage.setItem("ytgrabweb_theme", state.theme);
+    applyTheme();
+  };
+
+  $("btnSettings").onclick = () => $("settingsModal").classList.remove("hidden");
   $("btnCloseSettings").onclick = () => $("settingsModal").classList.add("hidden");
-  $("btnSaveSettings").onclick = () => {
-    state.backend = {
-      type: $("backendType").value,
-      url: $("backendUrl").value.trim(),
-    };
-    saveBackend();
-    updateBackendWarning();
-    updateVideoQualityOptions();
-    $("settingsModal").classList.add("hidden");
-    setStatus(t("saved"), "ok");
+  $("settingsModal").onclick = (e) => {
+    if (e.target === $("settingsModal")) $("settingsModal").classList.add("hidden");
   };
-  $("btnTestBackend").onclick = () =>
-    testBackend($("backendType").value, $("backendUrl").value.trim());
-  $("backendType").onchange = () => {
-    $("quickInstances").classList.toggle(
-      "hidden",
-      $("backendType").value !== "invidious"
-    );
+  $("btnReconnect").onclick = () => connect(true);
+  $("connChip").onclick = () => {
+    if (!active()) connect(true);
   };
 
   $("btnFetch").onclick = doFetch;
@@ -528,6 +576,8 @@ function init() {
     $("audioControls").classList.remove("hidden");
     $("videoControls").classList.add("hidden");
   };
+
+  connect(); // conecta sozinho, na hora que o site abre
 }
 
 init();

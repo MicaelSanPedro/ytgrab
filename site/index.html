@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>YTGrab — Baixe vídeos e músicas do YouTube</title>
-  <meta name="description" content="Baixe vídeos e músicas do YouTube em alta qualidade, direto do navegador." />
+  <meta name="description" content="Baixe vídeos e músicas do YouTube em alta qualidade, direto do navegador. Grátis e de código aberto." />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%AC%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -12,7 +12,10 @@
   <div class="container">
     <header>
       <div class="header-top">
-        <h1>🎬 YTGrab</h1>
+        <div class="brand">
+          <span class="logo">🎬</span>
+          <h1>YT<span class="grad">Grab</span></h1>
+        </div>
         <div class="header-actions">
           <button id="btnLang" class="icon-btn" title="Idioma / Language">🌐</button>
           <button id="btnTheme" class="icon-btn" title="Tema">🌙</button>
@@ -20,17 +23,13 @@
         </div>
       </div>
       <p class="tagline" id="tagline">Baixe vídeos e músicas do YouTube</p>
+      <button id="connChip" class="chip" title="Servidor">
+        <span class="dot"></span><span id="connText">conectando…</span>
+      </button>
     </header>
 
-    <!-- Aviso: backend necessário -->
-    <div id="needBackend" class="card warn hidden">
-      <h3 id="needBackendTitle">⚠️ Configure um servidor primeiro</h3>
-      <p id="needBackendText"></p>
-      <button id="btnOpenSettingsFromWarn" class="btn primary" data-i18n-open-settings>⚙️ Abrir configurações</button>
-    </div>
-
     <!-- Busca -->
-    <div class="card">
+    <div class="card search-card">
       <div class="search-row">
         <input id="urlInput" type="url" placeholder="Cole o link do YouTube aqui..." autocomplete="off" />
         <button id="btnFetch" class="btn primary">🔍 <span data-i18n="getInfo">Buscar</span></button>
@@ -49,30 +48,18 @@
       </div>
 
       <div class="tabs">
-        <button id="tabVideo" class="tab active">🎬 <span data-i18n="tabVideo">Vídeo (MP4)</span></button>
+        <button id="tabVideo" class="tab active">🎬 <span data-i18n="tabVideo">Vídeo</span></button>
         <button id="tabAudio" class="tab">🎵 <span data-i18n="tabAudio">Áudio</span></button>
       </div>
 
       <div class="controls">
-        <div id="videoControls">
+        <div id="videoControls" class="ctrl-row">
           <label data-i18n="quality">Qualidade:</label>
           <select id="videoQuality"></select>
         </div>
-        <div id="audioControls" class="hidden">
+        <div id="audioControls" class="ctrl-row hidden">
           <label data-i18n="audioFormat">Formato:</label>
-          <select id="audioFormat">
-            <option value="mp3">MP3</option>
-            <option value="opus">OPUS</option>
-            <option value="ogg">OGG</option>
-            <option value="wav">WAV</option>
-          </select>
-          <label data-i18n="audioBitrate">Bitrate:</label>
-          <select id="audioBitrate">
-            <option value="320">320 kbps</option>
-            <option value="256">256 kbps</option>
-            <option value="128" selected>128 kbps</option>
-            <option value="96">96 kbps</option>
-          </select>
+          <select id="audioFormat"></select>
         </div>
       </div>
 
@@ -85,52 +72,43 @@
     </div>
 
     <footer>
-      <p class="sub">
-        <span data-i18n="getTheApp">Prefere o app?</span>
-        <a href="https://github.com/MicaelSanPedro/ytgrab/releases" target="_blank" rel="noopener">📥 <span data-i18n="downloadApp">Baixe o YTGrab</span></a>
-        ·
-        <a href="https://github.com/MicaelSanPedro/TuneGrab" target="_blank" rel="noopener">📱 <span data-i18n="androidApp">App Android (TuneGrab)</span></a>
-      </p>
+      <div class="app-links">
+        <a class="app-link" href="https://github.com/MicaelSanPedro/ytgrab/releases" target="_blank" rel="noopener">📥 YTGrab <span>(Windows e Linux)</span></a>
+        <a class="app-link" href="https://github.com/MicaelSanPedro/TuneGrab" target="_blank" rel="noopener">📱 TuneGrab <span>(Android)</span></a>
+      </div>
       <p class="credits sub">
         <span data-i18n="madeBy">Feito por</span>
-        <a class="credit-link" href="https://github.com/lucasgabrieldevgg" target="_blank" rel="noopener">lucasgabrieldevgg</a>
-        &amp;
         <a class="credit-link" href="https://github.com/MicaelSanPedro" target="_blank" rel="noopener">Micael San</a>
+        &amp;
+        <a class="credit-link" href="https://github.com/lucasgabrieldevgg" target="_blank" rel="noopener">lucasgabrieldevgg</a>
       </p>
     </footer>
   </div>
 
-  <!-- Modal de configurações -->
+  <!-- Modal de configurações (só o essencial) -->
   <div id="settingsModal" class="modal-backdrop hidden">
     <div class="modal card">
       <h2>⚙️ <span data-i18n="settings">Configurações</span></h2>
 
-      <label data-i18n="backendType">Servidor (backend)</label>
-      <select id="backendType">
-        <option value="cobalt">Cobalt (recomendado)</option>
-        <option value="invidious">Invidious (instância pública)</option>
+      <label data-i18n="language">Idioma</label>
+      <select id="langSelect">
+        <option value="pt">Português (Brasil)</option>
+        <option value="en">English</option>
       </select>
 
-      <label data-i18n="backendUrl">Endereço do servidor</label>
-      <div class="search-row">
-        <input id="backendUrl" type="url" placeholder="https://seu-servidor.onrender.com" />
-        <button id="btnTestBackend" class="btn">🔌 <span data-i18n="test">Testar</span></button>
-      </div>
-      <p id="backendTestResult" class="status"></p>
+      <label data-i18n="theme">Tema</label>
+      <select id="themeSelect">
+        <option value="dark" data-i18n="themeDark">Escuro</option>
+        <option value="light" data-i18n="themeLight">Claro</option>
+      </select>
 
-      <div id="quickInstances">
-        <label data-i18n="tryPublic">Ou tente uma instância pública (instável):</label>
-        <div id="instanceList" class="instance-list"></div>
+      <div class="server-box">
+        <p class="sub" id="serverInfo"></p>
+        <button id="btnReconnect" class="btn small">🔌 <span data-i18n="reconnect">Reconectar</span></button>
       </div>
-
-      <details class="help-box">
-        <summary data-i18n="howToSetup">📖 Como criar o seu servidor Cobalt de graça (5 min)</summary>
-        <div id="setupGuide" class="guide"></div>
-      </details>
 
       <div class="modal-actions">
-        <button id="btnSaveSettings" class="btn primary" data-i18n="save">Salvar</button>
-        <button id="btnCloseSettings" class="btn" data-i18n="close">Fechar</button>
+        <button id="btnCloseSettings" class="btn primary" data-i18n="close">Fechar</button>
       </div>
     </div>
   </div>
