@@ -1,0 +1,4 @@
+{
+  "_comment": "Servidores do projeto YTGrab Web. O site lê este arquivo do branch gh-pages (raw.githubusercontent.com/MicaelSanPedro/ytgrab/gh-pages/servers.json) — dá pra editar direto no GitHub sem redeployar o site. engine: cobalt | piped | invidious.",
+  "primary": []
+}
