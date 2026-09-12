@@ -4,7 +4,7 @@
 FROM ghcr.io/imputnet/cobalt:latest
 
 # v=N muda a cada atualização de cookies (evita cache do Docker)
-ARG COOKIES_VERSION=3
+ARG COOKIES_VERSION=4
 RUN wget -qO /tmp/cookies.json \
       "https://gist.githubusercontent.com/lucasgabrieldevgg/4a102fc157c06ef59cbdae87d16a5b39/raw/cookies.json?v=${COOKIES_VERSION}"
 
