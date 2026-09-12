@@ -79,6 +79,12 @@ const I18N = {
 const SERVERS_JSON =
   "https://raw.githubusercontent.com/MicaelSanPedro/ytgrab/gh-pages/servers.json";
 
+/* Servidor de casa (opcional): quando o PC do dono tá ligado, ele se
+ * registra aqui e vira o servidor nº 1 do site (IP residencial = o
+ * YouTube nunca bloqueia). Sem ele, o site usa os servidores públicos. */
+const HOME_JSON =
+  "https://gist.githubusercontent.com/lucasgabrieldevgg/cef471a101827f323dd1ad026a94b1fd/raw/ytgrab-home.json";
+
 /* Candidatos estáticos — ordem = prioridade */
 const STATIC_CANDIDATES = [
   { engine: "piped", base: "https://api.piped.private.coffee" },
@@ -299,6 +305,14 @@ async function buildCandidateList() {
       (j.primary || []).forEach(push);
     }
   } catch { /* sem lista, tudo bem */ }
+  // 1b) servidor de casa (se o PC do dono estiver ligado, ele se registrou)
+  try {
+    const res = await fetchWithTimeout(`${HOME_JSON}?t=${Date.now()}`, {}, 6000);
+    if (res.ok) {
+      const j = await res.json();
+      (j.primary || []).forEach(push);
+    }
+  } catch { /* PC desligado, segue o baile */ }
   PRIMARY_COUNT = list.length; // os primeiros N são "do projeto" (com direito a 2 tentativas)
   // 2) estáticos
   STATIC_CANDIDATES.forEach(push);
