@@ -901,8 +901,10 @@ pub async fn download(
 
     let is_audio = format == "mp3";
 
-    // Build output template - clean title, proper extension
-    let output_template = format!("{}/%(title)s.{}", output_dir, format);
+    // Include the video ID so different videos with the same title never
+    // overwrite each other (common with unlisted videos).
+    // yt-dlp sanitizes the title/ID for the current operating system.
+    let output_template = format!("{}/%(title)s [%(id)s].{}", output_dir, format);
 
     // Build simple, direct yt-dlp command arguments.
     // `quality` comes from the UI as the value the user picked among the
