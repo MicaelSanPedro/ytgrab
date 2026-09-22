@@ -1,7 +1,7 @@
 {
   "$schema": "https://tauri.app/v2/schemas/config.schema.json",
   "productName": "YTGrab",
-  "version": "1.1.4",
+  "version": "1.2.0",
   "identifier": "com.ytgrab.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -30,18 +30,21 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "nsis"
+    ],
     "resources": [],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.icns",
       "icons/icon.ico"
     ],
     "linux": {
       "deb": {
-        "depends": ["ffmpeg"]
+        "depends": [
+          "ffmpeg"
+        ]
       }
     },
     "windows": {
@@ -50,7 +53,10 @@
       },
       "nsis": {
         "displayLanguageSelector": true,
-        "languages": ["PortugueseBR", "English"]
+        "languages": [
+          "PortugueseBR",
+          "English"
+        ]
       }
     }
   },

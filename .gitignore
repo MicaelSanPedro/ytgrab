@@ -10,3 +10,4 @@ src-tauri/bin/*
 
 # gerado pelo tauri-build a cada compilação
 src-tauri/gen/schemas/
+.vercel

@@ -1,13 +1,17 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { open as openUrl } from "@tauri-apps/plugin-shell";
+import { makeT, THEMES, LANGS, type Lang } from "./i18n";
 
 interface VideoInfo {
   title: string;
   thumbnail: string;
   duration: string;
   author: string;
+  available_heights: number[];
+  audio_bitrates: number[];
 }
 
 interface DownloadProgress {
@@ -23,9 +27,33 @@ interface DownloadHistory {
   timestamp: string;
 }
 
+interface UpdateInfo {
+  has_update: boolean;
+  latest: string;
+  url: string;
+}
+
+type UpdateFreq = "always" | "weekly" | "monthly" | "off";
+
+interface Settings {
+  lang: Lang;
+  theme: "dark" | "light";
+  updateFreq: UpdateFreq;
+  ownFolder: boolean;
+  outputDir: string; // "" = usar o padrão conforme ownFolder
+}
+
+const DEFAULT_SETTINGS: Settings = {
+  lang: "pt",
+  theme: "dark",
+  updateFreq: "weekly",
+  ownFolder: true,
+  outputDir: "",
+};
+
 const MP3_QUALITIES = [
-  { value: "0", label: "Melhor qualidade (320kbps)" },
-  { value: "2", label: "Boa qualidade (190kbps)" },
+  { value: "320", labelKey: "fallback320", label: "Melhor qualidade (320 kbps)" },
+  { value: "190", labelKey: "fallback190", label: "Boa qualidade (190 kbps)" },
 ];
 
 const MP4_QUALITIES = [
@@ -36,12 +64,38 @@ const MP4_QUALITIES = [
   { value: "2160", label: "4K (2160p)" },
 ];
 
+const SETTINGS_KEY = "ytgrab_settings";
+const LAST_CHECK_KEY = "ytgrab_last_update_check";
+
+function loadSettings(): Settings | null {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return null;
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+  } catch {
+    return null;
+  }
+}
+
 function App() {
+  const [settings, setSettings] = useState<Settings>(
+    () => loadSettings() ?? DEFAULT_SETTINGS,
+  );
+  const [firstRun, setFirstRun] = useState(() => loadSettings() === null);
+  const [showSettings, setShowSettings] = useState(firstRun);
+  const [draft, setDraft] = useState<Settings>(settings);
+
+  const t = useMemo(() => makeT(settings.lang), [settings.lang]);
+  const T = THEMES[settings.theme];
+
   const [url, setUrl] = useState("");
   const [format, setFormat] = useState<"mp3" | "mp4">("mp3");
-  const [quality, setQuality] = useState("0");
+  const [quality, setQuality] = useState("320");
   const [outputDir, setOutputDir] = useState("");
   const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
+  const [availableHeights, setAvailableHeights] = useState<number[]>([]);
+  const [audioBitrates, setAudioBitrates] = useState<number[]>([]);
+  const [convertTo, setConvertTo] = useState("none");
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
@@ -60,15 +114,34 @@ function App() {
   }>({ active: false, percent: 0, message: "", failed: false });
   const [history, setHistory] = useState<DownloadHistory[]>([]);
   const [successMsg, setSuccessMsg] = useState("");
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const unlistenRef = useRef<(() => void) | null>(null);
   const setupRunningRef = useRef(false);
   const setupUnlistenRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
-    // Load default download dir
-    invoke<string>("get_default_download_dir").then(setOutputDir).catch(console.error);
+  // Créditos no rodapé: o EXE (Windows) é assinado pelo Micael San e o
+  // AppImage (Linux) pelo Lucas. Link azul clicável para o GitHub de cada um.
+  const creditWin =
+    platform === "windows" || (!platform && /windows/i.test(navigator.userAgent));
+  const creditName = creditWin ? "Micael San" : "lucasgabrieldevgg";
+  const creditUrl = creditWin
+    ? "https://github.com/MicaelSanPedro"
+    : "https://github.com/lucasgabrieldevgg";
 
-    // Check dependencies (Android: auto-prepares on first use)
+  useEffect(() => {
+    // Resolve a pasta inicial conforme a configuração de pasta própria
+    const initDir = async () => {
+      try {
+        const dir = await invoke<string>("get_default_download_dir", {
+          ownFolder: settings.ownFolder,
+        });
+        setOutputDir(settings.outputDir || dir);
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    initDir();
+
     const boot = async () => {
       let plat = "other";
       try {
@@ -79,7 +152,6 @@ function App() {
     };
     boot();
 
-    // Listen for progress events
     const setupListener = async () => {
       const unlisten = await listen<DownloadProgress>("download-progress", (event) => {
         setProgress(event.payload);
@@ -88,7 +160,6 @@ function App() {
     };
     setupListener();
 
-    // Load history from localStorage
     const saved = localStorage.getItem("ytgrab_history");
     if (saved) {
       try {
@@ -96,12 +167,33 @@ function App() {
       } catch {}
     }
 
+    // Verificação de atualização do app, conforme a frequência configurada
+    maybeCheckUpdate(settings.updateFreq);
+
     return () => {
       if (unlistenRef.current) {
         unlistenRef.current();
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const maybeCheckUpdate = async (freq: UpdateFreq) => {
+    if (freq === "off") return;
+    const now = Date.now();
+    if (freq !== "always") {
+      const last = Number(localStorage.getItem(LAST_CHECK_KEY) || 0);
+      const days = freq === "weekly" ? 7 : 30;
+      if (now - last < days * 24 * 3600 * 1000) return;
+    }
+    try {
+      const info = await invoke<UpdateInfo>("check_app_update");
+      localStorage.setItem(LAST_CHECK_KEY, String(now));
+      if (info.has_update) setUpdateInfo(info);
+    } catch (e) {
+      console.error("update check:", e);
+    }
+  };
 
   const checkDeps = async (plat: string) => {
     try {
@@ -111,9 +203,6 @@ function App() {
 
       if (!deps["ytdlp"] || !deps["ffmpeg"]) {
         if (plat === "android" || plat === "linux") {
-          // Android e Linux: preparam tudo sozinhos no primeiro uso (sem passo
-          // manual). No Linux o AppImage já traz yt-dlp e ffmpeg; isso só roda
-          // quando eles faltam (ex.: instalação via .deb).
           startAutoSetup();
         } else {
           setShowInstallModal(true);
@@ -162,12 +251,7 @@ function App() {
       }, 1500);
     } catch (e: any) {
       console.error(e);
-      setSetup({
-        active: true,
-        percent: 0,
-        message: String(e ?? "desconhecido"),
-        failed: true,
-      });
+      setSetup({ active: true, percent: 0, message: String(e ?? "desconhecido"), failed: true });
     } finally {
       setupRunningRef.current = false;
     }
@@ -208,6 +292,16 @@ function App() {
     try {
       const info = await invoke<VideoInfo>("get_video_info", { url: url.trim() });
       setVideoInfo(info);
+
+      const heights = info.available_heights ?? [];
+      const rates = info.audio_bitrates ?? [];
+      setAvailableHeights(heights);
+      setAudioBitrates(rates);
+      if (format === "mp4") {
+        setQuality(heights.length ? String(heights[0]) : "best");
+      } else {
+        setQuality(rates.length ? String(rates[0]) : "320");
+      }
     } catch (e: any) {
       setError(e.toString());
     }
@@ -228,14 +322,14 @@ function App() {
         format,
         quality,
         outputDir,
+        convertTo,
       });
 
       setSuccessMsg(result);
 
-      // Add to history
       const entry: DownloadHistory = {
         title: videoInfo?.title || url.trim(),
-        format,
+        format: convertTo !== "none" ? convertTo : format,
         timestamp: new Date().toLocaleString("pt-BR"),
       };
       const newHistory = [entry, ...history].slice(0, 20);
@@ -249,7 +343,7 @@ function App() {
   };
 
   const handleSelectDir = async () => {
-    const selected = await open({ directory: true, title: "Selecionar pasta de downloads" });
+    const selected = await open({ directory: true, title: t("selectDir") });
     if (selected) {
       setOutputDir(selected as string);
     }
@@ -263,56 +357,361 @@ function App() {
     }
   };
 
-  const qualities = format === "mp3" ? MP3_QUALITIES : MP4_QUALITIES;
+  const openSettings = () => {
+    setDraft({ ...settings, outputDir: outputDir });
+    setShowSettings(true);
+  };
+
+  const saveSettings = async () => {
+    const next = { ...draft };
+    // Se a pasta estiver vazia ou for o padrão antigo, recalcula pelo toggle
+    if (!next.outputDir.trim()) {
+      try {
+        next.outputDir = await invoke<string>("get_default_download_dir", {
+          ownFolder: next.ownFolder,
+        });
+      } catch {}
+    }
+    setSettings(next);
+    setOutputDir(next.outputDir);
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+    if (firstRun) setFirstRun(false);
+    setShowSettings(false);
+  };
+
+  const qualities =
+    format === "mp3"
+      ? audioBitrates.length
+        ? audioBitrates.map((b, i) => ({
+            value: String(b),
+            label: i === 0 ? `${t("maxOfSource")} (${b} kbps)` : `${b} kbps`,
+          }))
+        : MP3_QUALITIES
+      : availableHeights.length
+        ? [
+            { value: "best", label: t("bestAvailable") },
+            ...availableHeights.map((h, i) => ({
+              value: String(h),
+              label: `${h}p${
+                i === 0
+                  ? ` (${t("maxOfVideo")})`
+                  : h >= 2160
+                    ? " (4K)"
+                    : h >= 1080
+                      ? " (Full HD)"
+                      : h >= 720
+                        ? " (HD)"
+                        : ""
+              }`,
+            })),
+          ]
+        : MP4_QUALITIES;
+
+  const labelStyle = { fontSize: 12, color: T.sub, display: "block", marginBottom: 4 } as const;
+  const selectStyle = {
+    width: "100%",
+    padding: 8,
+    borderRadius: 8,
+    background: T.inputBg,
+    color: T.text,
+    border: `1px solid ${T.border}`,
+    fontSize: 13,
+    boxSizing: "border-box",
+  } as const;
 
   return (
-    <div style={{
-      maxWidth: 480,
-      margin: "0 auto",
-      padding: 16,
-      fontFamily: "'Segoe UI', system-ui, sans-serif",
-      color: "#e0e0e0",
-      background: "#1a1a2e",
-      minHeight: "100vh",
-    }}>
+    <div
+      style={{
+        maxWidth: 480,
+        margin: "0 auto",
+        padding: 16,
+        fontFamily: "'Segoe UI', system-ui, sans-serif",
+        color: T.text,
+        background: T.bg,
+        minHeight: "100vh",
+      }}
+    >
       {/* Header */}
-      <div style={{ textAlign: "center", marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 28, color: "#ff6b6b" }}>YTGrab</h1>
-        <p style={{ margin: "4px 0 0", fontSize: 12, color: "#888" }}>Baixe vídeos e músicas do YouTube</p>
+      <div style={{ textAlign: "center", marginBottom: 20, position: "relative" }}>
+        <h1 style={{ margin: 0, fontSize: 28, color: T.accent }}>YTGrab</h1>
+        <p style={{ margin: "4px 0 0", fontSize: 12, color: T.sub }}>{t("tagline")}</p>
+        <button
+          onClick={openSettings}
+          title={t("settings")}
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            background: "none",
+            border: "none",
+            fontSize: 18,
+            cursor: "pointer",
+            color: T.sub,
+          }}
+        >
+          ⚙
+        </button>
       </div>
 
-      {/* First-run auto-setup (Android) */}
+      {/* Update banner */}
+      {updateInfo?.has_update && (
+        <div
+          style={{
+            background: T.okBg,
+            border: `1px solid ${T.warn}`,
+            borderRadius: 8,
+            padding: 10,
+            marginBottom: 12,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <span style={{ fontSize: 12, color: T.text }}>
+             {t("updateAvailable")} <strong>v{updateInfo.latest}</strong>
+          </span>
+          <button
+            onClick={() => openUrl(updateInfo.url).catch(console.error)}
+            style={{
+              background: T.blue,
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              padding: "6px 10px",
+              fontSize: 11,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {t("viewRelease")}
+          </button>
+        </div>
+      )}
+
+      {/* Settings screen (first run or via ⚙) */}
+      {showSettings && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.85)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1100,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: T.card,
+              borderRadius: 12,
+              padding: 20,
+              maxWidth: 420,
+              width: "100%",
+              maxHeight: "90vh",
+              overflow: "auto",
+              color: T.text,
+            }}
+          >
+            <h2 style={{ marginTop: 0, fontSize: 18, color: T.accent }}>
+              {firstRun ? t("firstRunTitle") : t("settingsTitle")}
+            </h2>
+            {firstRun && (
+              <p style={{ fontSize: 12, color: T.sub, marginTop: -8 }}>{t("firstRunHint")}</p>
+            )}
+
+            <label style={labelStyle}>{t("language")}</label>
+            <select
+              value={draft.lang}
+              onChange={(e) => setDraft({ ...draft, lang: e.target.value as Lang })}
+              style={selectStyle}
+            >
+              {LANGS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+
+            <div style={{ height: 12 }} />
+            <label style={labelStyle}>{t("theme")}</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {(["dark", "light"] as const).map((th) => (
+                <button
+                  key={th}
+                  onClick={() => setDraft({ ...draft, theme: th })}
+                  style={{
+                    flex: 1,
+                    padding: 8,
+                    borderRadius: 8,
+                    background: draft.theme === th ? T.accent : T.card,
+                    color: draft.theme === th ? "#fff" : T.text,
+                    border: `2px solid ${draft.theme === th ? T.accent : T.border}`,
+                    fontSize: 13,
+                    cursor: "pointer",
+                  }}
+                >
+                  {th === "dark" ? "🌙 " + t("themeDark") : "☀ " + t("themeLight")}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ height: 12 }} />
+            <label style={labelStyle}>{t("updateCheck")}</label>
+            <select
+              value={draft.updateFreq}
+              onChange={(e) => setDraft({ ...draft, updateFreq: e.target.value as UpdateFreq })}
+              style={selectStyle}
+            >
+              <option value="always">{t("freqAlways")}</option>
+              <option value="weekly">{t("freqWeekly")}</option>
+              <option value="monthly">{t("freqMonthly")}</option>
+              <option value="off">{t("freqOff")}</option>
+            </select>
+
+            <div style={{ height: 12 }} />
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={draft.ownFolder}
+                onChange={(e) => setDraft({ ...draft, ownFolder: e.target.checked, outputDir: "" })}
+              />
+              {t("ownFolder")}
+            </label>
+            <label style={{ ...labelStyle, marginTop: 8 }}>{t("downloadFolder")}</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="text"
+                value={draft.outputDir}
+                onChange={(e) => setDraft({ ...draft, outputDir: e.target.value })}
+                placeholder={draft.ownFolder ? "~/Downloads/YTGrab" : "~/Downloads"}
+                style={{
+                  flex: 1,
+                  padding: 8,
+                  borderRadius: 8,
+                  background: T.inputBg,
+                  color: T.text,
+                  border: `1px solid ${T.border}`,
+                  fontSize: 12,
+                }}
+              />
+              <button
+                onClick={async () => {
+                  const sel = await open({ directory: true, title: t("selectDir") });
+                  if (sel) setDraft({ ...draft, outputDir: sel as string });
+                }}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  background: T.blue,
+                  color: "#fff",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
+                📁
+              </button>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+              <button
+                onClick={saveSettings}
+                style={{
+                  flex: 1,
+                  padding: 10,
+                  borderRadius: 8,
+                  background: T.ok,
+                  color: "#fff",
+                  border: "none",
+                  fontSize: 14,
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                }}
+              >
+                ✓ {t("save")}
+              </button>
+              {!firstRun && (
+                <button
+                  onClick={() => setShowSettings(false)}
+                  style={{
+                    padding: "10px 16px",
+                    borderRadius: 8,
+                    background: T.card,
+                    color: T.text,
+                    border: `1px solid ${T.border}`,
+                    fontSize: 14,
+                    cursor: "pointer",
+                  }}
+                >
+                  {t("close")}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* First-run auto-setup */}
       {setup.active && (
-        <div style={{
-          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-          background: "rgba(0,0,0,0.92)", display: "flex",
-          alignItems: "center", justifyContent: "center", zIndex: 1200,
-          padding: 16,
-        }}>
-          <div style={{
-            background: "#16213e", borderRadius: 12, padding: 24,
-            maxWidth: 420, width: "100%", textAlign: "center",
-          }}>
-            <h2 style={{ color: "#ff6b6b", marginTop: 0, fontSize: 20 }}>
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.92)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1200,
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: T.card,
+              borderRadius: 12,
+              padding: 24,
+              maxWidth: 420,
+              width: "100%",
+              textAlign: "center",
+            }}
+          >
+            <h2 style={{ color: T.accent, marginTop: 0, fontSize: 20 }}>
               {setup.failed ? "Não foi possível preparar o app" : "Configurando o app..."}
             </h2>
 
             {!setup.failed && (
               <>
-                <p style={{ fontSize: 13, color: "#ccc", lineHeight: 1.5, minHeight: 20 }}>
+                <p style={{ fontSize: 13, color: T.text, lineHeight: 1.5, minHeight: 20 }}>
                   {setup.message}
                 </p>
-                <div style={{
-                  width: "100%", height: 6, background: "#333",
-                  borderRadius: 3, overflow: "hidden", margin: "14px 0 6px",
-                }}>
-                  <div style={{
-                    width: `${Math.min(100, Math.max(0, setup.percent))}%`,
-                    height: "100%", background: "#ff6b6b",
-                    transition: "width 0.3s",
-                  }} />
+                <div
+                  style={{
+                    width: "100%",
+                    height: 6,
+                    background: T.border,
+                    borderRadius: 3,
+                    overflow: "hidden",
+                    margin: "14px 0 6px",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${Math.min(100, Math.max(0, setup.percent))}%`,
+                      height: "100%",
+                      background: T.accent,
+                      transition: "width 0.3s",
+                    }}
+                  />
                 </div>
-                <p style={{ fontSize: 11, color: "#888" }}>
+                <p style={{ fontSize: 11, color: T.sub }}>
                   {platform === "linux"
                     ? "Só na primeira vez: o app baixa o yt-dlp e o ffmpeg (cerca de 120 MB) e se prepara sozinho, sem nenhuma etapa manual."
                     : "Só na primeira vez: o app baixa Python + ffmpeg (cerca de 40–60 MB) e se prepara sozinho, sem nenhuma etapa manual."}
@@ -328,9 +727,14 @@ function App() {
                 <button
                   onClick={() => startAutoSetup()}
                   style={{
-                    background: "#2ecc71", color: "#fff", border: "none",
-                    borderRadius: 8, padding: "10px 32px", fontSize: 14,
-                    cursor: "pointer", marginTop: 8,
+                    background: T.ok,
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 8,
+                    padding: "10px 32px",
+                    fontSize: 14,
+                    cursor: "pointer",
+                    marginTop: 8,
                   }}
                 >
                   Tentar novamente
@@ -341,20 +745,36 @@ function App() {
         </div>
       )}
 
-      {/* Install Modal */}
+      {/* Install Modal (Windows) */}
       {showInstallModal && (
-        <div style={{
-          position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-          background: "rgba(0,0,0,0.8)", display: "flex",
-          alignItems: "center", justifyContent: "center", zIndex: 1000,
-        }}>
-          <div style={{
-            background: "#16213e", borderRadius: 12, padding: 24,
-            maxWidth: 400, width: "90%", textAlign: "center",
-          }}>
-            <h2 style={{ color: "#ff6b6b", marginTop: 0 }}>Instalar Dependências</h2>
-            <p style={{ fontSize: 13, color: "#aaa", lineHeight: 1.5 }}>
-              O YTGrab precisa do <strong style={{color:"#fff"}}>yt-dlp</strong> e do <strong style={{color:"#fff"}}>ffmpeg</strong> para funcionar.
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.8)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div
+            style={{
+              background: T.card,
+              borderRadius: 12,
+              padding: 24,
+              maxWidth: 400,
+              width: "90%",
+              textAlign: "center",
+            }}
+          >
+            <h2 style={{ color: T.accent, marginTop: 0 }}>Instalar Dependências</h2>
+            <p style={{ fontSize: 13, color: T.sub, lineHeight: 1.5 }}>
+              O YTGrab precisa do <strong style={{ color: T.text }}>yt-dlp</strong> e do{" "}
+              <strong style={{ color: T.text }}>ffmpeg</strong> para funcionar.
             </p>
 
             <div style={{ margin: "16px 0" }}>
@@ -362,10 +782,15 @@ function App() {
                 onClick={handleInstallYtdlp}
                 disabled={installing || ytdlpInstalled}
                 style={{
-                  background: ytdlpInstalled ? "#2ecc71" : "#ff6b6b",
-                  color: "#fff", border: "none", borderRadius: 8,
-                  padding: "10px 24px", fontSize: 14, cursor: "pointer",
-                  margin: 4, opacity: (installing || ytdlpInstalled) ? 0.7 : 1,
+                  background: ytdlpInstalled ? T.ok : T.accent,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "10px 24px",
+                  fontSize: 14,
+                  cursor: "pointer",
+                  margin: 4,
+                  opacity: installing || ytdlpInstalled ? 0.7 : 1,
                 }}
               >
                 {ytdlpInstalled ? "✓ yt-dlp Instalado" : "Instalar yt-dlp"}
@@ -374,32 +799,44 @@ function App() {
                 onClick={handleInstallFfmpeg}
                 disabled={installing || ffmpegInstalled}
                 style={{
-                  background: ffmpegInstalled ? "#2ecc71" : "#e94560",
-                  color: "#fff", border: "none", borderRadius: 8,
-                  padding: "10px 24px", fontSize: 14, cursor: "pointer",
-                  margin: 4, opacity: (installing || ffmpegInstalled) ? 0.7 : 1,
+                  background: ffmpegInstalled ? T.ok : T.accent2,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "10px 24px",
+                  fontSize: 14,
+                  cursor: "pointer",
+                  margin: 4,
+                  opacity: installing || ffmpegInstalled ? 0.7 : 1,
                 }}
               >
                 {ffmpegInstalled ? "✓ ffmpeg Instalado" : "Instalar ffmpeg"}
               </button>
             </div>
 
-            {installMsg && (
-              <p style={{ fontSize: 12, color: "#aaa", margin: "8px 0" }}>{installMsg}</p>
-            )}
+            {installMsg && <p style={{ fontSize: 12, color: T.sub, margin: "8px 0" }}>{installMsg}</p>}
 
             {installing && (
               <div style={{ margin: "8px 0" }}>
-                <div style={{
-                  width: "100%", height: 4, background: "#333",
-                  borderRadius: 2, overflow: "hidden",
-                }}>
-                  <div style={{
-                    width: "40%", height: "100%", background: "#ff6b6b",
-                    animation: "pulse 1.5s infinite",
-                  }} />
+                <div
+                  style={{
+                    width: "100%",
+                    height: 4,
+                    background: T.border,
+                    borderRadius: 2,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "40%",
+                      height: "100%",
+                      background: T.accent,
+                      animation: "pulse 1.5s infinite",
+                    }}
+                  />
                 </div>
-                <p style={{ fontSize: 11, color: "#888", marginTop: 4 }}>Baixando...</p>
+                <p style={{ fontSize: 11, color: T.sub, marginTop: 4 }}>Baixando...</p>
               </div>
             )}
 
@@ -407,9 +844,14 @@ function App() {
               <button
                 onClick={() => setShowInstallModal(false)}
                 style={{
-                  background: "#2ecc71", color: "#fff", border: "none",
-                  borderRadius: 8, padding: "10px 32px", fontSize: 14,
-                  cursor: "pointer", marginTop: 8,
+                  background: T.ok,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "10px 32px",
+                  fontSize: 14,
+                  cursor: "pointer",
+                  marginTop: 8,
                 }}
               >
                 Continuar →
@@ -417,7 +859,7 @@ function App() {
             )}
 
             {ytdlpInstalled && !ffmpegInstalled && (
-              <p style={{ fontSize: 11, color: "#ffaa00", marginTop: 8 }}>
+              <p style={{ fontSize: 11, color: T.warn, marginTop: 8 }}>
                 ffmpeg é necessário para converter áudio e mesclar vídeo.
               </p>
             )}
@@ -431,11 +873,16 @@ function App() {
           type="text"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="Cole o link do YouTube aqui..."
+          placeholder={t("urlPlaceholder")}
           style={{
-            width: "100%", padding: "10px 14px", borderRadius: 8,
-            border: "1px solid #333", background: "#16213e",
-            color: "#fff", fontSize: 14, boxSizing: "border-box",
+            width: "100%",
+            padding: "10px 14px",
+            borderRadius: 8,
+            border: `1px solid ${T.border}`,
+            background: T.inputBg,
+            color: T.text,
+            fontSize: 14,
+            boxSizing: "border-box",
           }}
           onKeyDown={(e) => e.key === "Enter" && handleGetInfo()}
         />
@@ -446,22 +893,32 @@ function App() {
         onClick={handleGetInfo}
         disabled={loading || !url.trim()}
         style={{
-          width: "100%", padding: 10, borderRadius: 8,
-          background: loading ? "#555" : "#0f3460",
-          color: "#fff", border: "none", fontSize: 14,
+          width: "100%",
+          padding: 10,
+          borderRadius: 8,
+          background: loading ? T.sub : T.blue,
+          color: "#fff",
+          border: "none",
+          fontSize: 14,
           cursor: loading ? "not-allowed" : "pointer",
           marginBottom: 12,
         }}
       >
-        {loading ? "Carregando..." : "🔍 Buscar Informações"}
+        {loading ? t("loading") : t("getInfo")}
       </button>
 
       {/* Video Preview */}
       {videoInfo && (
-        <div style={{
-          background: "#16213e", borderRadius: 10, padding: 12,
-          marginBottom: 12, display: "flex", gap: 12,
-        }}>
+        <div
+          style={{
+            background: T.card,
+            borderRadius: 10,
+            padding: 12,
+            marginBottom: 12,
+            display: "flex",
+            gap: 12,
+          }}
+        >
           {videoInfo.thumbnail && (
             <img
               src={videoInfo.thumbnail}
@@ -470,10 +927,22 @@ function App() {
             />
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ margin: 0, fontSize: 13, fontWeight: "bold", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 13,
+                fontWeight: "bold",
+                lineHeight: 1.3,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+              }}
+            >
               {videoInfo.title}
             </p>
-            <p style={{ margin: "4px 0 0", fontSize: 11, color: "#888" }}>
+            <p style={{ margin: "4px 0 0", fontSize: 11, color: T.sub }}>
               {videoInfo.author} • {videoInfo.duration}
             </p>
           </div>
@@ -481,27 +950,43 @@ function App() {
       )}
 
       {/* Format Toggle */}
-      <div style={{
-        display: "flex", gap: 8, marginBottom: 12,
-      }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <button
-          onClick={() => { setFormat("mp3"); setQuality("0"); }}
+          onClick={() => {
+            setFormat("mp3");
+            setConvertTo("none");
+            setQuality(audioBitrates.length ? String(audioBitrates[0]) : "320");
+          }}
           style={{
-            flex: 1, padding: 10, borderRadius: 8,
-            background: format === "mp3" ? "#ff6b6b" : "#16213e",
-            color: "#fff", border: format === "mp3" ? "2px solid #ff6b6b" : "2px solid #333",
-            fontSize: 14, fontWeight: "bold", cursor: "pointer",
+            flex: 1,
+            padding: 10,
+            borderRadius: 8,
+            background: format === "mp3" ? T.accent : T.card,
+            color: "#fff",
+            border: format === "mp3" ? `2px solid ${T.accent}` : `2px solid ${T.border}`,
+            fontSize: 14,
+            fontWeight: "bold",
+            cursor: "pointer",
           }}
         >
           🎵 MP3
         </button>
         <button
-          onClick={() => { setFormat("mp4"); setQuality("best"); }}
+          onClick={() => {
+            setFormat("mp4");
+            setConvertTo("none");
+            setQuality(availableHeights.length ? String(availableHeights[0]) : "best");
+          }}
           style={{
-            flex: 1, padding: 10, borderRadius: 8,
-            background: format === "mp4" ? "#e94560" : "#16213e",
-            color: "#fff", border: format === "mp4" ? "2px solid #e94560" : "2px solid #333",
-            fontSize: 14, fontWeight: "bold", cursor: "pointer",
+            flex: 1,
+            padding: 10,
+            borderRadius: 8,
+            background: format === "mp4" ? T.accent2 : T.card,
+            color: "#fff",
+            border: format === "mp4" ? `2px solid ${T.accent2}` : `2px solid ${T.border}`,
+            fontSize: 14,
+            fontWeight: "bold",
+            cursor: "pointer",
           }}
         >
           🎬 MP4
@@ -510,46 +995,64 @@ function App() {
 
       {/* Quality Select */}
       <div style={{ marginBottom: 12 }}>
-        <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>
-          Qualidade:
-        </label>
-        <select
-          value={quality}
-          onChange={(e) => setQuality(e.target.value)}
-          style={{
-            width: "100%", padding: 8, borderRadius: 8,
-            background: "#16213e", color: "#fff",
-            border: "1px solid #333", fontSize: 13,
-          }}
-        >
+        <label style={labelStyle}>{t("quality")}</label>
+        <select value={quality} onChange={(e) => setQuality(e.target.value)} style={selectStyle}>
           {qualities.map((q) => (
-            <option key={q.value} value={q.value}>{q.label}</option>
+            <option key={q.value} value={q.value}>
+              {q.label}
+            </option>
           ))}
         </select>
       </div>
 
+      {/* Post-download conversion */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={labelStyle}>{t("convertTo")}</label>
+        <select value={convertTo} onChange={(e) => setConvertTo(e.target.value)} style={selectStyle}>
+          <option value="none">
+            {t("noConvert")} {format.toUpperCase()})
+          </option>
+          {(format === "mp4" ? ["mkv", "webm", "mp3", "m4a", "opus", "wav"] : ["m4a", "opus", "wav"]).map(
+            (tf) => (
+              <option key={tf} value={tf}>
+                .{tf.toUpperCase()}
+              </option>
+            ),
+          )}
+        </select>
+        {convertTo !== "none" && (
+          <p style={{ fontSize: 11, color: T.sub, margin: "4px 0 0" }}>{t("convertHint")}</p>
+        )}
+      </div>
+
       {/* Output Directory */}
       <div style={{ marginBottom: 12 }}>
-        <label style={{ fontSize: 12, color: "#888", display: "block", marginBottom: 4 }}>
-          Salvar em:
-        </label>
+        <label style={labelStyle}>{t("saveIn")}</label>
         <div style={{ display: "flex", gap: 8 }}>
           <input
             type="text"
             value={outputDir}
             onChange={(e) => setOutputDir(e.target.value)}
             style={{
-              flex: 1, padding: 8, borderRadius: 8,
-              background: "#16213e", color: "#fff",
-              border: "1px solid #333", fontSize: 12,
+              flex: 1,
+              padding: 8,
+              borderRadius: 8,
+              background: T.inputBg,
+              color: T.text,
+              border: `1px solid ${T.border}`,
+              fontSize: 12,
             }}
           />
           <button
             onClick={handleSelectDir}
             style={{
-              padding: "8px 12px", borderRadius: 8,
-              background: "#0f3460", color: "#fff",
-              border: "none", cursor: "pointer", fontSize: 13,
+              padding: "8px 12px",
+              borderRadius: 8,
+              background: T.blue,
+              color: "#fff",
+              border: "none",
+              cursor: "pointer",
+              fontSize: 13,
             }}
           >
             📁
@@ -558,12 +1061,16 @@ function App() {
         <button
           onClick={handleOpenDir}
           style={{
-            background: "none", border: "none",
-            color: "#ff6b6b", fontSize: 11,
-            cursor: "pointer", padding: 0, marginTop: 4,
+            background: "none",
+            border: "none",
+            color: T.accent,
+            fontSize: 11,
+            cursor: "pointer",
+            padding: 0,
+            marginTop: 4,
           }}
         >
-          Abrir pasta →
+          {t("openFolder")}
         </button>
       </div>
 
@@ -572,44 +1079,60 @@ function App() {
         onClick={handleDownload}
         disabled={downloading || !url.trim() || !outputDir}
         style={{
-          width: "100%", padding: 12, borderRadius: 10,
-          background: downloading ? "#555" : "linear-gradient(135deg, #ff6b6b, #e94560)",
-          color: "#fff", border: "none", fontSize: 16,
-          fontWeight: "bold", cursor: downloading ? "not-allowed" : "pointer",
+          width: "100%",
+          padding: 12,
+          borderRadius: 10,
+          background: downloading ? T.sub : `linear-gradient(135deg, ${T.accent}, ${T.accent2})`,
+          color: "#fff",
+          border: "none",
+          fontSize: 16,
+          fontWeight: "bold",
+          cursor: downloading ? "not-allowed" : "pointer",
           marginBottom: 12,
         }}
       >
         {downloading
           ? progress?.stage === "converting"
-            ? "⏳ Convertendo..."
-            : "⏳ Baixando..."
-          : `⬇ Baixar ${format.toUpperCase()}`}
+            ? t("converting")
+            : t("downloading")
+          : convertTo !== "none"
+            ? `${t("downloadAndConvert")} ${convertTo.toUpperCase()}`
+            : `${t("download")} ${format.toUpperCase()}`}
       </button>
 
       {/* Progress Bar */}
       {(downloading || progress) && progress && (
         <div style={{ marginBottom: 12 }}>
-          <div style={{
-            width: "100%", height: 8, background: "#333",
-            borderRadius: 4, overflow: "hidden", marginBottom: 4,
-          }}>
-            <div style={{
-              width: `${Math.min(progress.percentage, 100)}%`,
-              height: "100%",
-              background: progress.stage === "converting"
-                ? "#ffa502"
-                : progress.percentage >= 100
-                  ? "#2ecc71"
-                  : "#ff6b6b",
-              transition: "width 0.3s ease",
-            }} />
+          <div
+            style={{
+              width: "100%",
+              height: 8,
+              background: T.border,
+              borderRadius: 4,
+              overflow: "hidden",
+              marginBottom: 4,
+            }}
+          >
+            <div
+              style={{
+                width: `${Math.min(progress.percentage, 100)}%`,
+                height: "100%",
+                background:
+                  progress.stage === "converting"
+                    ? T.warn
+                    : progress.percentage >= 100
+                      ? T.ok
+                      : T.accent,
+                transition: "width 0.3s ease",
+              }}
+            />
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#888" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.sub }}>
             <span>
               {progress.stage === "starting"
-                ? "Iniciando..."
+                ? t("starting")
                 : progress.stage === "converting"
-                  ? "Convertendo áudio..."
+                  ? t("convertingAudio")
                   : `${progress.percentage.toFixed(1)}%`}
             </span>
             <span>
@@ -622,43 +1145,63 @@ function App() {
 
       {/* Success Message */}
       {successMsg && (
-        <div style={{
-          background: "#1a3a2a", borderRadius: 8, padding: 10,
-          marginBottom: 12, border: "1px solid #2ecc71",
-        }}>
-          <p style={{ margin: 0, color: "#2ecc71", fontSize: 13 }}>✓ {successMsg}</p>
+        <div
+          style={{
+            background: T.okBg,
+            borderRadius: 8,
+            padding: 10,
+            marginBottom: 12,
+            border: `1px solid ${T.ok}`,
+          }}
+        >
+          <p style={{ margin: 0, color: T.ok, fontSize: 13 }}>✓ {successMsg}</p>
         </div>
       )}
 
       {/* Error Message */}
       {error && (
-        <div style={{
-          background: "#3a1a1a", borderRadius: 8, padding: 10,
-          marginBottom: 12, border: "1px solid #e94560",
-        }}>
-          <p style={{ margin: 0, color: "#ff6b6b", fontSize: 13 }}>✗ {error}</p>
+        <div
+          style={{
+            background: T.errBg,
+            borderRadius: 8,
+            padding: 10,
+            marginBottom: 12,
+            border: `1px solid ${T.accent2}`,
+          }}
+        >
+          <p style={{ margin: 0, color: T.err, fontSize: 13 }}>✗ {error}</p>
         </div>
       )}
 
       {/* Download History */}
       {history.length > 0 && (
         <div style={{ marginTop: 16 }}>
-          <h3 style={{ fontSize: 14, color: "#888", marginBottom: 8 }}>
-            📜 Histórico
-          </h3>
+          <h3 style={{ fontSize: 14, color: T.sub, marginBottom: 8 }}>{t("history")}</h3>
           <div style={{ maxHeight: 200, overflow: "auto" }}>
             {history.map((item, i) => (
-              <div key={i} style={{
-                display: "flex", justifyContent: "space-between",
-                padding: "6px 8px", background: "#16213e",
-                borderRadius: 6, marginBottom: 4, fontSize: 12,
-              }}>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%" }}>
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  padding: "6px 8px",
+                  background: T.card,
+                  borderRadius: 6,
+                  marginBottom: 4,
+                  fontSize: 12,
+                }}
+              >
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    maxWidth: "70%",
+                  }}
+                >
                   {item.title}
                 </span>
-                <span style={{ color: "#888", flexShrink: 0 }}>
-                  .{item.format}
-                </span>
+                <span style={{ color: T.sub, flexShrink: 0 }}>.{item.format}</span>
               </div>
             ))}
           </div>
@@ -674,13 +1217,37 @@ function App() {
             else setShowInstallModal(true);
           }}
           style={{
-            background: "none", border: "none",
-            color: "#555", fontSize: 11, cursor: "pointer",
+            background: "none",
+            border: "none",
+            color: T.sub,
+            fontSize: 11,
+            cursor: "pointer",
             textDecoration: "underline",
           }}
         >
-          Reinstalar dependências
+          {t("reinstall")}
         </button>
+      </div>
+
+      {/* Créditos — azul clicável, abre o GitHub no navegador */}
+      <div style={{ marginTop: 12, textAlign: "center", fontSize: 11, color: T.sub }}>
+        {t("madeBy")}{" "}
+        <a
+          href={creditUrl}
+          onClick={(e) => {
+            e.preventDefault();
+            openUrl(creditUrl).catch(console.error);
+          }}
+          style={{
+            color: "#3b82f6",
+            fontWeight: 600,
+            textDecoration: "none",
+            cursor: "pointer",
+          }}
+          title={creditUrl}
+        >
+          {creditName}
+        </a>
       </div>
     </div>
   );

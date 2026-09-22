@@ -2,13 +2,17 @@ name: Build YTGrab
 
 on:
   push:
-    branches: [main, 'arena/01a07454-ytgrab']
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Windows: instalador NSIS (.exe). O MSI não é mais gerado — os targets de
+  # bundle estão fixados em `src-tauri/tauri.conf.json` (targets: ["nsis"]).
+  # ---------------------------------------------------------------------------
   build-windows:
     runs-on: windows-latest
     steps:
@@ -171,6 +175,11 @@ jobs:
             Autocontido: já traz yt-dlp e ffmpeg estático, não precisa instalar
             nada nem de `python3`.
 
+            Não quer usar o terminal? Instale o
+            [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) e
+            arraste o AppImage para dentro dele — o app entra no menu do
+            sistema com um clique.
+
             ```bash
             chmod +x YTGrab_${{ env.VERSION }}_amd64.AppImage
             ./YTGrab_${{ env.VERSION }}_amd64.AppImage
@@ -180,239 +189,3 @@ jobs:
             distro não tiver FUSE: `sudo apt install libfuse2`, ou rode com
             `--appimage-extract-and-run`.
           files: src-tauri/target/release/bundle/appimage/*.AppImage
-
-  android-check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK (for C build scripts)
-        run: |
-          yes | sdkmanager "ndk;29.0.13846066"
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
-
-      - name: Install Linux system deps (tauri host build for cargo test)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev
-
-      - name: cargo check (aarch64-linux-android)
-        working-directory: src-tauri
-        run: |
-          export NDK_HOME="$ANDROID_HOME/ndk/29.0.13846066"
-          TOOLCHAIN="$NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          for c in aarch64-linux-android21-clang aarch64-linux-android24-clang aarch64-linux-android26-clang aarch64-linux-android28-clang aarch64-linux-android30-clang; do
-            if [ -x "$TOOLCHAIN/$c" ]; then
-              export CC_aarch64_linux_android="$TOOLCHAIN/$c"
-              break
-            fi
-          done
-          export AR_aarch64_linux_android="$TOOLCHAIN/llvm-ar"
-          if [ -z "${CC_aarch64_linux_android:-}" ]; then
-            echo "NDK clang não encontrado em $TOOLCHAIN"
-            ls "$TOOLCHAIN" 2>/dev/null | head -40 || true
-            exit 1
-          fi
-          echo "CC_aarch64_linux_android=$CC_aarch64_linux_android"
-          rc=0
-          cargo check --target aarch64-linux-android > /tmp/android-check.log 2>&1 || rc=$?
-          echo "----- últimas 40 linhas do cargo check -----"
-          tail -40 /tmp/android-check.log
-          exit $rc
-
-      - name: Test real Termux .deb (host cargo test)
-        working-directory: src-tauri
-        run: |
-          curl -fL --retry 3 "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages.gz" -o /tmp/Packages.gz
-          gunzip -c /tmp/Packages.gz > /tmp/Packages
-          FN=$(python3 - <<'PY'
-          import re
-          txt = open('/tmp/Packages', encoding='utf-8').read()
-          pick = None
-          for s in txt.split('Package: ')[1:]:
-              name = s.split('\n', 1)[0].strip()
-              if name == 'brotli':
-                  m = re.search(r'Filename: (\S+)', s)
-                  if m:
-                      pick = m.group(1)
-                      break
-          if not pick:
-              m = re.search(r'Filename: (\S+\.deb)', txt)
-              pick = m.group(1) if m else None
-          assert pick, 'nenhum Filename no índice'
-          print(pick)
-          PY
-          )
-          echo "Fixture: $FN"
-          curl -fL --retry 3 "https://packages.termux.dev/apt/termux-main/$FN" -o /tmp/fixture.deb
-          ls -la /tmp/fixture.deb
-          rc=0
-          DEB_FIXTURE=/tmp/fixture.deb cargo test --lib > /tmp/android-debtest.log 2>&1 || rc=$?
-          tail -40 /tmp/android-debtest.log
-          exit $rc
-
-      - name: Verify real python+ffmpeg .deb contents (layout guard)
-        run: |
-          rc=0
-          python3 ci/termux_deb_check.py > /tmp/android-debcheck.log 2>&1 || rc=$?
-          tail -40 /tmp/android-debcheck.log
-          exit $rc
-
-      - name: Report check failure (draft release with log)
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          {
-            echo "_`cargo check --target aarch64-linux-android` falhou — run \`${GITHUB_RUN_ID}\`_"
-            echo ""
-            echo "NDK clang wrappers disponíveis:"
-            ls "$ANDROID_HOME/ndk/29.0.13846066/toolchains/llvm/prebuilt/linux-x86_64/bin" 2>/dev/null | grep -c "" || true
-            ls "$ANDROID_HOME/ndk/29.0.13846066/toolchains/llvm/prebuilt/linux-x86_64/bin" 2>/dev/null | grep "clang" | head -12 || true
-            echo ""
-            echo "Últimas 300 linhas do cargo check:"
-            echo '```'
-            tail -300 /tmp/android-check.log
-            echo '```'
-            if [ -f /tmp/android-debtest.log ]; then
-              echo ""
-              echo "Últimas 120 linhas do cargo test (.deb real):"
-              echo '```'
-              tail -120 /tmp/android-debtest.log
-              echo '```'
-            fi
-            if [ -f /tmp/android-debcheck.log ]; then
-              echo ""
-              echo "Guard de layout dos debs (python/ffmpeg):"
-              echo '```'
-              tail -80 /tmp/android-debcheck.log
-              echo '```'
-            fi
-          } > /tmp/fail-notes.md
-          if gh release view ci-android-check-failure --json id >/dev/null 2>&1; then
-            gh release edit ci-android-check-failure --draft --title "CI Android check failure (auto)" --notes-file /tmp/fail-notes.md
-          else
-            gh release create ci-android-check-failure --draft --target main --title "CI Android check failure (auto)" --notes-file /tmp/fail-notes.md
-          fi || echo "nao consegui publicar o relatorio"
-
-  build-android:
-    runs-on: ubuntu-latest
-    needs: [build-windows, android-check]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK components
-        run: |
-          yes | sdkmanager "platform-tools" "platforms;android-36" "build-tools;35.0.0" "build-tools;36.0.0" "ndk;29.0.13846066"
-
-      - name: Set Android environment
-        run: |
-          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-          echo "NDK_HOME=$ANDROID_HOME/ndk/29.0.13846066" >> $GITHUB_ENV
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/29.0.13846066" >> $GITHUB_ENV
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
-
-      - name: Install frontend deps
-        run: npm ci
-
-      - name: Sanity check (Termux index + runtime closure)
-        run: |
-          set -e
-          # The app downloads this exact runtime on first use; fail fast if the
-          # repository layout or the closure changes under us.
-          curl -fL --retry 3 "https://packages.termux.dev/apt/termux-main/dists/stable/main/binary-aarch64/Packages.gz" -o /tmp/Packages.gz
-          gunzip -c /tmp/Packages.gz > /tmp/Packages
-          python3 ci/termux_closure.py /tmp/Packages python ffmpeg > /tmp/closure.txt
-          echo "Pacotes baixados pelo app no 1º uso ($(wc -l < /tmp/closure.txt)):"
-          cat /tmp/closure.txt
-
-      - name: Build Android APK (arm64)
-        run: |
-          rc=0
-          npx tauri android build --apk --target aarch64 > /tmp/android-build.log 2>&1 || rc=$?
-          echo "----- últimas 120 linhas do build -----"
-          tail -120 /tmp/android-build.log
-          exit $rc
-
-      - name: Upload build log (for diagnostics)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-build-log
-          path: /tmp/android-build.log
-          if-no-files-found: ignore
-          retention-days: 3
-
-      - name: Report build failure (draft release with log)
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          [ -f /tmp/android-build.log ] || exit 0
-          {
-            echo "_Log de falha do build Android (arm64) — atualizado automaticamente pelo CI._"
-            echo ""
-            echo "Run: \`${GITHUB_RUN_ID}\`"
-            echo ""
-            echo '```'
-            tail -400 /tmp/android-build.log
-            echo '```'
-          } > /tmp/fail-notes.md
-          if gh release view ci-android-failure --json id >/dev/null 2>&1; then
-            gh release edit ci-android-failure --draft --title "CI Android failure (auto)" --notes-file /tmp/fail-notes.md
-          else
-            gh release create ci-android-failure --draft --target main --title "CI Android failure (auto)" --notes-file /tmp/fail-notes.md
-          fi || echo "nao consegui publicar o relatorio"
-
-      - name: Sign APK
-        run: |
-          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
-          UNSIGNED=$(find src-tauri/gen/android/app/build/outputs/apk -name "app-universal-release-unsigned.apk" -type f | head -1)
-          if [ -z "$UNSIGNED" ]; then
-            echo "APK não encontrado!"
-            find src-tauri/gen/android -name "*.apk" -type f || true
-            exit 1
-          fi
-          echo "Assinando $UNSIGNED"
-          "$APKSIGNER" sign \
-            --ks "src-tauri/gen/android/keystore/ytgrab-release.keystore" \
-            --ks-key-alias ytgrab \
-            --ks-pass "pass:ytgrab-release" \
-            --out "YTGrab_${VERSION}_android.apk" \
-            "$UNSIGNED"
-          "$APKSIGNER" verify --print-certs "YTGrab_${VERSION}_android.apk"
-          ls -la "YTGrab_${VERSION}_android.apk"
-
-      - name: Attach APK to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          gh release upload "v${VERSION}" "YTGrab_${VERSION}_android.apk" --clobber
-          echo "APK anexado à release v${VERSION}"
