@@ -7,6 +7,7 @@ import { makeT, THEMES, LANGS, type Lang } from "./i18n";
 
 interface VideoInfo {
   title: string;
+  video_id: string;
   thumbnail: string;
   duration: string;
   author: string;
@@ -96,6 +97,8 @@ function App() {
   const [availableHeights, setAvailableHeights] = useState<number[]>([]);
   const [audioBitrates, setAudioBitrates] = useState<number[]>([]);
   const [convertTo, setConvertTo] = useState("none");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
@@ -322,6 +325,8 @@ function App() {
         format,
         quality,
         outputDir,
+        startTime: startTime.trim() || null,
+        endTime: endTime.trim() || null,
         convertTo,
       });
 
@@ -408,6 +413,7 @@ function App() {
         : MP4_QUALITIES;
 
   const labelStyle = { fontSize: 12, color: T.sub, display: "block", marginBottom: 4 } as const;
+  const inputStyle = { padding: "8px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, fontSize: 12, boxSizing: "border-box" } as const;
   const selectStyle = {
     width: "100%",
     padding: 8,
@@ -945,6 +951,29 @@ function App() {
             <p style={{ margin: "4px 0 0", fontSize: 11, color: T.sub }}>
               {videoInfo.author} • {videoInfo.duration}
             </p>
+          </div>
+        </div>
+      )}
+
+      {/* Preview and cut range */}
+      {videoInfo && (
+        <div style={{ background: T.card, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>Prévia e trecho</div>
+          {videoInfo.video_id && (
+            <iframe
+              title="Prévia do vídeo"
+              src={`https://www.youtube.com/embed/${videoInfo.video_id}`}
+              style={{ width: "100%", aspectRatio: "16 / 9", border: 0, borderRadius: 8, marginBottom: 10 }}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <input value={startTime} onChange={(e) => setStartTime(e.target.value)} placeholder="Começa em (00:00)" style={{ ...inputStyle, flex: 1 }} />
+            <input value={endTime} onChange={(e) => setEndTime(e.target.value)} placeholder="Termina em (00:00)" style={{ ...inputStyle, flex: 1 }} />
+          </div>
+          <div style={{ color: T.sub, fontSize: 11, marginTop: 5 }}>
+            Deixe vazio para baixar o vídeo inteiro. Use mm:ss ou hh:mm:ss.
           </div>
         </div>
       )}

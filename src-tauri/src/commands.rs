@@ -9,6 +9,7 @@ use tokio::process::Command;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct VideoInfo {
     pub title: String,
+    pub video_id: String,
     pub thumbnail: String,
     pub duration: String,
     pub author: String,
@@ -568,6 +569,10 @@ pub async fn get_ytdlp_install_info(app: tauri::AppHandle) -> Result<HashMap<Str
 #[tauri::command]
 pub async fn get_video_info(app: tauri::AppHandle, url: String) -> Result<VideoInfo, String> {
     let mut cmd = ytdlp_base_command(&app)?;
+    // Brave is the browser used by the Linux build/user setup. These cookies
+    // are needed for age-restricted videos and remain on the user's machine.
+    #[cfg(target_os = "linux")]
+    cmd.args(["--cookies-from-browser", "brave"]);
     cmd.args(["--no-warnings", "-j", &url])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -584,6 +589,7 @@ pub async fn get_video_info(app: tauri::AppHandle, url: String) -> Result<VideoI
         .map_err(|e| format!("Erro ao processar informações: {}", e))?;
 
     let title = json["title"].as_str().unwrap_or("Vídeo sem título").to_string();
+    let video_id = json["id"].as_str().unwrap_or("").to_string();
     let thumbnail = json["thumbnail"].as_str().unwrap_or("").to_string();
     let duration_secs = json["duration"].as_f64().unwrap_or(0.0);
     let author = json["channel"].as_str().unwrap_or("Desconhecido").to_string();
@@ -636,6 +642,7 @@ pub async fn get_video_info(app: tauri::AppHandle, url: String) -> Result<VideoI
 
     Ok(VideoInfo {
         title,
+        video_id,
         thumbnail,
         duration,
         author,
@@ -885,6 +892,8 @@ pub async fn download(
     format: String,
     quality: String,
     output_dir: String,
+    start_time: Option<String>,
+    end_time: Option<String>,
     // Pós-conversão opcional do resultado: "none" (padrão), "mp4", "mkv",
     // "webm" (vídeo) ou "mp3", "m4a", "opus", "wav" (só áudio).
     convert_to: Option<String>,
@@ -910,7 +919,7 @@ pub async fn download(
     // `quality` comes from the UI as the value the user picked among the
     // options the source actually offers: a height in pixels (video) or a
     // bitrate in kbps (audio); "best" leaves the choice to yt-dlp.
-    let args: Vec<String> = if is_audio {
+    let mut args: Vec<String> = if is_audio {
         // MP3: extract audio, convert to mp3 at the chosen bitrate.
         vec![
             "-x".into(),
@@ -937,6 +946,18 @@ pub async fn download(
             "mp4".into(),
         ]
     };
+
+    // Download only the selected interval. yt-dlp uses ffmpeg to cut it.
+    if let (Some(start), Some(end)) = (start_time.as_deref(), end_time.as_deref()) {
+        if !start.is_empty() && !end.is_empty() {
+            args.extend(["--download-sections".into(), format!("*{start}-{end}"), "--force-keyframes-at-cuts".into()]);
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        args.splice(0..0, ["--cookies-from-browser".into(), "brave".into()]);
+    }
 
     // Emit initial progress
     let _ = app.emit("download-progress", DownloadProgress {
