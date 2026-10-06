@@ -957,9 +957,9 @@ pub async fn download(
     } else {
         // MP4: download video capped at the chosen height.
         let fmt = if quality == "best" {
-            "bestvideo+bestaudio/best".to_string()
+            "bestvideo+bestaudio/bestvideo/best".to_string()
         } else {
-            format!("bestvideo[height<={quality}]+bestaudio/best")
+            format!("bestvideo[height<={quality}]+bestaudio/bestvideo[height<={quality}]/bestvideo/best")
         };
         vec![
             "-f".into(),
