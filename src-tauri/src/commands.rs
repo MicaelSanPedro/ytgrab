@@ -45,6 +45,25 @@ fn ytdlp_bin_name() -> &'static str {
     "yt-dlp"
 }
 
+/// Locate Brave's Chromium profile on common Linux installations. The
+/// `brave:<path>` form is supported by yt-dlp and is needed for Flatpak/Snap,
+/// where the default ~/.config path does not exist.
+#[cfg(target_os = "linux")]
+fn brave_cookie_spec() -> Option<String> {
+    let home = std::env::var_os("HOME")?;
+    let home = PathBuf::from(home);
+    let candidates = [
+        home.join(".config/BraveSoftware/Brave-Browser"),
+        home.join(".var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser"),
+        home.join("snap/brave/current/.config/BraveSoftware/Brave-Browser"),
+    ];
+    candidates.into_iter().find(|root| {
+        root.join("Default/Cookies").is_file()
+            || root.join("Profile 1/Cookies").is_file()
+            || root.join("Cookies").is_file()
+    }).map(|root| format!("brave:{}", root.display()))
+}
+
 /// Get the ffmpeg binary name for the current platform
 #[cfg(target_os = "windows")]
 fn ffmpeg_bin_name() -> &'static str {
@@ -569,10 +588,11 @@ pub async fn get_ytdlp_install_info(app: tauri::AppHandle) -> Result<HashMap<Str
 #[tauri::command]
 pub async fn get_video_info(app: tauri::AppHandle, url: String) -> Result<VideoInfo, String> {
     let mut cmd = ytdlp_base_command(&app)?;
-    // Brave is the browser used by the Linux build/user setup. These cookies
-    // are needed for age-restricted videos and remain on the user's machine.
+    // Use the user's Brave cookies when a native, Flatpak, or Snap profile is found.
     #[cfg(target_os = "linux")]
-    cmd.args(["--cookies-from-browser", "brave"]);
+    if let Some(spec) = brave_cookie_spec() {
+        cmd.args(["--cookies-from-browser", &spec]);
+    }
     cmd.args(["--no-warnings", "-j", &url])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -955,8 +975,8 @@ pub async fn download(
     }
 
     #[cfg(target_os = "linux")]
-    {
-        args.splice(0..0, ["--cookies-from-browser".into(), "brave".into()]);
+    if let Some(spec) = brave_cookie_spec() {
+        args.splice(0..0, ["--cookies-from-browser".into(), spec]);
     }
 
     // Emit initial progress
