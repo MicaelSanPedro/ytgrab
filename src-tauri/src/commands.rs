@@ -259,6 +259,10 @@ fn find_ffmpeg(app: &tauri::AppHandle) -> Option<PathBuf> {
 fn ytdlp_base_command(app: &tauri::AppHandle) -> Result<Command, String> {
     let ytdlp = find_ytdlp(app)?;
     let mut cmd = Command::new(&ytdlp);
+    // Do not inherit a user's global yt-dlp.conf. A custom -f there can make
+    // metadata lookup fail with "Requested format is not available" before
+    // the app has selected any format itself.
+    cmd.arg("--ignore-config");
 
     #[cfg(target_os = "linux")]
     {
