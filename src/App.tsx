@@ -118,6 +118,7 @@ function App() {
   const [history, setHistory] = useState<DownloadHistory[]>([]);
   const [successMsg, setSuccessMsg] = useState("");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updatingApp, setUpdatingApp] = useState(false);
   const unlistenRef = useRef<(() => void) | null>(null);
   const setupRunningRef = useRef(false);
   const setupUnlistenRef = useRef<(() => void) | null>(null);
@@ -195,6 +196,16 @@ function App() {
       if (info.has_update) setUpdateInfo(info);
     } catch (e) {
       console.error("update check:", e);
+    }
+  };
+
+  const installAppUpdate = async () => {
+    setUpdatingApp(true);
+    try {
+      await invoke<string>("install_app_update");
+    } catch (e: any) {
+      setError(String(e));
+      setUpdatingApp(false);
     }
   };
 
@@ -477,21 +488,21 @@ function App() {
           <span style={{ fontSize: 12, color: T.text }}>
              {t("updateAvailable")} <strong>v{updateInfo.latest}</strong>
           </span>
-          <button
-            onClick={() => openUrl(updateInfo.url).catch(console.error)}
-            style={{
-              background: T.blue,
-              color: "#fff",
-              border: "none",
-              borderRadius: 6,
-              padding: "6px 10px",
-              fontSize: 11,
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {t("viewRelease")}
-          </button>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              onClick={installAppUpdate}
+              disabled={updatingApp}
+              style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 11, cursor: updatingApp ? "wait" : "pointer", whiteSpace: "nowrap" }}
+            >
+              {updatingApp ? "Atualizando..." : "Atualizar agora"}
+            </button>
+            <button
+              onClick={() => openUrl(updateInfo.url).catch(console.error)}
+              style={{ background: T.blue, color: "#fff", border: "none", borderRadius: 6, padding: "6px 10px", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}
+            >
+              {t("viewRelease")}
+            </button>
+          </div>
         </div>
       )}
 

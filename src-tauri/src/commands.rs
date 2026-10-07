@@ -495,6 +495,54 @@ pub async fn check_app_update() -> Result<UpdateInfo, String> {
     })
 }
 
+/// Download and install the latest release without asking the user to manually
+/// fetch another installer/AppImage. On Linux the APPIMAGE file is replaced;
+/// on Windows the NSIS installer is launched silently.
+#[tauri::command]
+pub async fn install_app_update(app: tauri::AppHandle) -> Result<String, String> {
+    let response = reqwest::Client::new()
+        .get("https://api.github.com/repos/MicaelSanPedro/ytgrab/releases/latest")
+        .header("User-Agent", "ytgrab")
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|e| format!("Falha ao buscar atualização: {e}"))?;
+    let body = response.text().await.map_err(|e| format!("Falha ao ler atualização: {e}"))?;
+    let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| format!("Resposta inválida do GitHub: {e}"))?;
+    let suffix = if cfg!(target_os = "windows") { "_x64-setup.exe" } else { "_amd64.AppImage" };
+    let asset = json["assets"].as_array().and_then(|assets| assets.iter().find(|a| {
+        a["name"].as_str().map(|n| n.ends_with(suffix)).unwrap_or(false)
+    })).ok_or_else(|| "Instalador da plataforma não encontrado na atualização.".to_string())?;
+    let url = asset["browser_download_url"].as_str().ok_or("URL do instalador inválida.")?;
+    let bytes = reqwest::get(url).await.map_err(|e| format!("Falha ao baixar atualização: {e}"))?.bytes().await.map_err(|e| format!("Falha ao ler atualização: {e}"))?;
+
+    #[cfg(target_os = "linux")]
+    {
+        let current = std::env::var_os("APPIMAGE").ok_or("Abra o YTGrab pelo AppImage para usar a atualização automática.")?;
+        let current = PathBuf::from(current);
+        let temp = current.with_extension("AppImage.update");
+        std::fs::write(&temp, &bytes).map_err(|e| format!("Falha ao salvar atualização: {e}"))?;
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(0o755)).map_err(|e| format!("Falha ao preparar atualização: {e}"))?;
+        std::fs::rename(&temp, &current).map_err(|e| format!("Falha ao substituir AppImage: {e}"))?;
+        std::process::Command::new(&current).spawn().map_err(|e| format!("Falha ao reiniciar o app: {e}"))?;
+        app.exit(0);
+        return Ok("Atualização instalada. Reiniciando...".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let installer = std::env::temp_dir().join("YTGrab-update.exe");
+        std::fs::write(&installer, &bytes).map_err(|e| format!("Falha ao salvar atualização: {e}"))?;
+        std::process::Command::new(&installer).arg("/S").spawn().map_err(|e| format!("Falha ao iniciar instalador: {e}"))?;
+        app.exit(0);
+        return Ok("Atualização instalada. Reiniciando...".to_string());
+    }
+
+    #[allow(unreachable_code)]
+    Err("Atualização automática não suportada nesta plataforma.".to_string())
+}
+
 /// Current platform identifier ("windows", "linux" or "other").
 #[tauri::command]
 pub fn get_platform() -> String {

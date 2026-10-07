@@ -19,6 +19,7 @@ pub fn run() {
             commands::get_platform,
             commands::get_deps_dir,
             commands::check_app_update,
+            commands::install_app_update,
             commands::get_ytdlp_install_info,
             commands::get_video_info,
             commands::get_default_download_dir,
