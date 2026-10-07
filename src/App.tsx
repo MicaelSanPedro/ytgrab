@@ -990,15 +990,21 @@ function App() {
       {videoInfo && (
         <div style={{ background: T.card, borderRadius: 10, padding: 12, marginBottom: 12 }}>
           <div style={{ fontSize: 13, fontWeight: "bold", marginBottom: 8 }}>Prévia e trecho</div>
-          {videoInfo.video_id && (
-            <iframe
-              title="Prévia do vídeo"
-              src={`https://www.youtube.com/embed/${videoInfo.video_id}`}
-              style={{ width: "100%", aspectRatio: "16 / 9", border: 0, borderRadius: 8, marginBottom: 10 }}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-            />
-          )}
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <button
+              onClick={() => openUrl(url).catch(console.error)}
+              style={{ flex: 1, padding: 10, borderRadius: 8, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, cursor: "pointer" }}
+            >
+              ▶ Assistir no YouTube
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              title="Recarregar o app"
+              style={{ padding: "10px 14px", borderRadius: 8, border: `1px solid ${T.border}`, background: T.inputBg, color: T.text, cursor: "pointer" }}
+            >
+              ↻
+            </button>
+          </div>
           <div style={{ display: "flex", gap: 8 }}>
             <input value={startTime} onChange={(e) => setStartTime(e.target.value)} placeholder="Começa em (00:00)" style={{ ...inputStyle, flex: 1 }} />
             <input value={endTime} onChange={(e) => setEndTime(e.target.value)} placeholder="Termina em (00:00)" style={{ ...inputStyle, flex: 1 }} />
