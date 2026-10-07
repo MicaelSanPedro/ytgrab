@@ -918,10 +918,16 @@ async fn run_ytdlp(
 
     // Cut locally after the download. Cutting through yt-dlp's
     // --download-sections crashes with some current static ffmpeg builds.
-    if let (Some(start), Some(end)) = (start_time.as_deref(), end_time.as_deref()) {
-        if !start.is_empty() && !end.is_empty() {
-            trim_downloaded(app, &output_dir_path, is_audio, start, end).await?;
-        }
+    if start_time.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
+        || end_time.as_deref().map(|s| !s.is_empty()).unwrap_or(false)
+    {
+        trim_downloaded(
+            app,
+            &output_dir_path,
+            is_audio,
+            start_time.as_deref().filter(|s| !s.is_empty()),
+            end_time.as_deref().filter(|s| !s.is_empty()),
+        ).await?;
     }
 
     // Pós-conversão pedida na UI (select "Converter para:"): roda o ffmpeg
@@ -1127,8 +1133,8 @@ async fn trim_downloaded(
     app: &tauri::AppHandle,
     output_dir: &str,
     is_audio: bool,
-    start: &str,
-    end: &str,
+    start: Option<&str>,
+    end: Option<&str>,
 ) -> Result<(), String> {
     let ffmpeg = find_ffmpeg(app).ok_or_else(|| "ffmpeg não encontrado para cortar o trecho.".to_string())?;
     let ext = if is_audio { "mp3" } else { "mp4" };
@@ -1142,8 +1148,15 @@ async fn trim_downloaded(
     let input = input.ok_or_else(|| "Arquivo baixado não foi localizado para cortar.".to_string())?;
     let temp = input.with_file_name(format!("{}.ytgrab-cut.tmp", input.file_name().unwrap_or_default().to_string_lossy()));
     let mut cmd = tokio::process::Command::new(ffmpeg);
-    cmd.args(["-y", "-ss", start, "-to", end, "-i"])
-        .arg(&input).args(["-map", "0", "-c", "copy"]).arg(&temp)
+    cmd.arg("-y");
+    if let Some(start) = start {
+        cmd.args(["-ss", start]);
+    }
+    cmd.arg("-i").arg(&input);
+    if let Some(end) = end {
+        cmd.args(["-to", end]);
+    }
+    cmd.args(["-map", "0", "-c", "copy"]).arg(&temp)
         .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
     let output = cmd.output().await.map_err(|e| format!("Erro ao cortar trecho: {e}"))?;
     if !output.status.success() || !temp.is_file() {
