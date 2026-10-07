@@ -1146,7 +1146,9 @@ async fn trim_downloaded(
         })
         .max_by_key(|p| p.metadata().and_then(|m| m.modified()).ok());
     let input = input.ok_or_else(|| "Arquivo baixado não foi localizado para cortar.".to_string())?;
-    let temp = input.with_file_name(format!("{}.ytgrab-cut.tmp", input.file_name().unwrap_or_default().to_string_lossy()));
+    // Keep the real extension so ffmpeg can infer the output container.
+    let stem = input.file_stem().and_then(|s| s.to_str()).unwrap_or("ytgrab");
+    let temp = input.with_file_name(format!("{stem}.ytgrab-cut.tmp.{ext}"));
     let mut cmd = tokio::process::Command::new(ffmpeg);
     cmd.arg("-y");
     if let Some(start) = start {
