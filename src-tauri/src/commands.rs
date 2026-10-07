@@ -781,6 +781,8 @@ async fn run_ytdlp(
     url: &str,
     is_audio: bool,
     convert_to: Option<String>,
+    start_time: Option<String>,
+    end_time: Option<String>,
 ) -> Result<String, String> {
     let mut cmd = ytdlp_base_command(app)?;
 
@@ -912,6 +914,14 @@ async fn run_ytdlp(
     // Clean up intermediate files for audio downloads
     if is_audio {
         cleanup_intermediate_files(&output_dir_path);
+    }
+
+    // Cut locally after the download. Cutting through yt-dlp's
+    // --download-sections crashes with some current static ffmpeg builds.
+    if let (Some(start), Some(end)) = (start_time.as_deref(), end_time.as_deref()) {
+        if !start.is_empty() && !end.is_empty() {
+            trim_downloaded(app, &output_dir_path, is_audio, start, end).await?;
+        }
     }
 
     // Pós-conversão pedida na UI (select "Converter para:"): roda o ffmpeg
@@ -1048,13 +1058,6 @@ pub async fn download(
         ]
     };
 
-    // Download only the selected interval. yt-dlp uses ffmpeg to cut it.
-    if let (Some(start), Some(end)) = (start_time.as_deref(), end_time.as_deref()) {
-        if !start.is_empty() && !end.is_empty() {
-            args.extend(["--download-sections".into(), format!("*{start}-{end}"), "--force-keyframes-at-cuts".into()]);
-        }
-    }
-
     #[cfg(target_os = "linux")]
     if let Some(spec) = brave_cookie_spec() {
         args.splice(0..0, ["--cookies-from-browser".into(), spec]);
@@ -1068,7 +1071,7 @@ pub async fn download(
         stage: "starting".to_string(),
     });
 
-    run_ytdlp(&app, &args, &output_dir, &url, is_audio, convert_to).await
+    run_ytdlp(&app, &args, &output_dir, &url, is_audio, convert_to, start_time, end_time).await
 }
 
 // ---------------------------------------------------------------------------
@@ -1116,6 +1119,41 @@ fn ffmpeg_target_args(target: &str) -> Option<Vec<String>> {
         "wav" => vec!["-vn", "-c:a", "pcm_s16le"],
         _ => return None,
     }.into_iter().map(String::from).collect())
+}
+
+/// Corta o arquivo já baixado com ffmpeg, evitando o caminho instável de
+/// --download-sections dentro do yt-dlp.
+async fn trim_downloaded(
+    app: &tauri::AppHandle,
+    output_dir: &str,
+    is_audio: bool,
+    start: &str,
+    end: &str,
+) -> Result<(), String> {
+    let ffmpeg = find_ffmpeg(app).ok_or_else(|| "ffmpeg não encontrado para cortar o trecho.".to_string())?;
+    let ext = if is_audio { "mp3" } else { "mp4" };
+    let dir = Path::new(output_dir);
+    let input = std::fs::read_dir(dir).map_err(|e| e.to_string())?.flatten()
+        .filter_map(|e| {
+            let p = e.path();
+            (p.extension().and_then(|x| x.to_str()).map(|x| x.eq_ignore_ascii_case(ext)).unwrap_or(false)).then_some(p)
+        })
+        .max_by_key(|p| p.metadata().and_then(|m| m.modified()).ok());
+    let input = input.ok_or_else(|| "Arquivo baixado não foi localizado para cortar.".to_string())?;
+    let temp = input.with_file_name(format!("{}.ytgrab-cut.tmp", input.file_name().unwrap_or_default().to_string_lossy()));
+    let mut cmd = tokio::process::Command::new(ffmpeg);
+    cmd.args(["-y", "-ss", start, "-to", end, "-i"])
+        .arg(&input).args(["-map", "0", "-c", "copy"]).arg(&temp)
+        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
+    let output = cmd.output().await.map_err(|e| format!("Erro ao cortar trecho: {e}"))?;
+    if !output.status.success() || !temp.is_file() {
+        let _ = std::fs::remove_file(&temp);
+        let err = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Corte do trecho falhou: {}", err.trim().chars().take(300).collect::<String>()));
+    }
+    std::fs::remove_file(&input).map_err(|e| format!("Erro ao substituir arquivo cortado: {e}"))?;
+    std::fs::rename(&temp, &input).map_err(|e| format!("Erro ao finalizar arquivo cortado: {e}"))?;
+    Ok(())
 }
 
 /// Converte o arquivo baixado para o formato pedido e, se a conversão tiver
