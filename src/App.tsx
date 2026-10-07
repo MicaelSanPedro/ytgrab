@@ -119,6 +119,7 @@ function App() {
   const [successMsg, setSuccessMsg] = useState("");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [updatingApp, setUpdatingApp] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState(0);
   const unlistenRef = useRef<(() => void) | null>(null);
   const setupRunningRef = useRef(false);
   const setupUnlistenRef = useRef<(() => void) | null>(null);
@@ -182,6 +183,14 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    listen<{ percentage: number }>("app-update-progress", (event) => {
+      setUpdateProgress(Math.max(0, Math.min(100, event.payload.percentage || 0)));
+    }).then((unlisten) => { stop = unlisten; });
+    return () => { stop?.(); };
+  }, []);
+
   const maybeCheckUpdate = async (freq: UpdateFreq) => {
     if (freq === "off") return;
     const now = Date.now();
@@ -201,6 +210,7 @@ function App() {
 
   const installAppUpdate = async () => {
     setUpdatingApp(true);
+    setUpdateProgress(0);
     try {
       await invoke<string>("install_app_update");
     } catch (e: any) {
@@ -488,6 +498,16 @@ function App() {
           <span style={{ fontSize: 12, color: T.text }}>
              {t("updateAvailable")} <strong>v{updateInfo.latest}</strong>
           </span>
+          {updatingApp && (
+            <div style={{ flex: 1, minWidth: 90 }}>
+              <div style={{ height: 6, background: T.border, borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ width: `${updateProgress}%`, height: "100%", background: T.accent, transition: "width .2s" }} />
+              </div>
+              <div style={{ fontSize: 10, color: T.sub, marginTop: 2, textAlign: "center" }}>
+                Baixando atualização… {updateProgress.toFixed(0)}%
+              </div>
+            </div>
+          )}
           <div style={{ display: "flex", gap: 6 }}>
             <button
               onClick={installAppUpdate}

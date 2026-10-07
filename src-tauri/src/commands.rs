@@ -1,3 +1,4 @@
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -514,7 +515,22 @@ pub async fn install_app_update(app: tauri::AppHandle) -> Result<String, String>
         a["name"].as_str().map(|n| n.ends_with(suffix)).unwrap_or(false)
     })).ok_or_else(|| "Instalador da plataforma não encontrado na atualização.".to_string())?;
     let url = asset["browser_download_url"].as_str().ok_or("URL do instalador inválida.")?;
-    let bytes = reqwest::get(url).await.map_err(|e| format!("Falha ao baixar atualização: {e}"))?.bytes().await.map_err(|e| format!("Falha ao ler atualização: {e}"))?;
+    let response = reqwest::get(url).await.map_err(|e| format!("Falha ao baixar atualização: {e}"))?;
+    let total = response.content_length().unwrap_or(0);
+    let mut downloaded = 0u64;
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Falha ao ler atualização: {e}"))?;
+        downloaded += chunk.len() as u64;
+        bytes.extend_from_slice(&chunk);
+        let percentage = if total > 0 { downloaded as f64 / total as f64 * 100.0 } else { 0.0 };
+        let _ = app.emit("app-update-progress", serde_json::json!({
+            "percentage": percentage,
+            "downloaded": downloaded,
+            "total": total,
+        }));
+    }
 
     #[cfg(target_os = "linux")]
     {
