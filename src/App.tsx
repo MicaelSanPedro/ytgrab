@@ -1117,7 +1117,7 @@ function App() {
       {/* Download Button */}
       <button
         onClick={handleDownload}
-        disabled={downloading || !url.trim() || !outputDir}
+        disabled={downloading || loading || !url.trim() || !outputDir || !videoInfo}
         style={{
           width: "100%",
           padding: 12,
@@ -1135,9 +1135,11 @@ function App() {
           ? progress?.stage === "converting"
             ? t("converting")
             : t("downloading")
-          : convertTo !== "none"
-            ? `${t("downloadAndConvert")} ${convertTo.toUpperCase()}`
-            : `${t("download")} ${format.toUpperCase()}`}
+          : !videoInfo
+            ? "Busque as informações do vídeo primeiro"
+            : convertTo !== "none"
+              ? `${t("downloadAndConvert")} ${convertTo.toUpperCase()}`
+              : `${t("download")} ${format.toUpperCase()}`}
       </button>
 
       {/* Progress Bar */}
