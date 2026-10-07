@@ -36,6 +36,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path $bin | Out-Null
           Write-Host ">> yt-dlp.exe"
           Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile (Join-Path $bin "yt-dlp.exe") -UseBasicParsing
+          Write-Host ">> deno.exe (runtime JavaScript do YouTube)"
+          $denoZip = Join-Path $PWD "deno.zip"
+          Invoke-WebRequest -Uri "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip" -OutFile $denoZip -UseBasicParsing
+          Expand-Archive -Path $denoZip -DestinationPath $bin -Force
+          Remove-Item $denoZip -Force
           Write-Host ">> ffmpeg (essentials, gyan.dev)"
           $zip = Join-Path $PWD "ffmpeg-essentials.zip"
           Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile $zip -UseBasicParsing
@@ -109,6 +114,12 @@ jobs:
           echo ">> yt-dlp (standalone)"
           curl -fL --retry 3 -o src-tauri/bin/yt-dlp \
             "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux"
+
+          echo ">> deno (runtime JavaScript do YouTube)"
+          curl -fL --retry 5 -o /tmp/deno.zip \
+            "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip"
+          unzip -o /tmp/deno.zip deno -d src-tauri/bin >/dev/null
+          chmod +x src-tauri/bin/deno
 
           echo ">> ffmpeg (build estático do johnvansickle)"
           case "$(uname -m)" in

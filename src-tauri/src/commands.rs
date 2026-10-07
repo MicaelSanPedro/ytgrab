@@ -275,6 +275,19 @@ fn ytdlp_base_command(app: &tauri::AppHandle) -> Result<Command, String> {
         }
     }
 
+    // YouTube now requires a JavaScript runtime to solve its player
+    // challenge. Bundle Deno beside yt-dlp and pass its absolute path so the
+    // AppImage/installer works even when the user has no Deno in PATH.
+    if let Ok(ytdlp_path) = find_ytdlp(app) {
+        if let Some(dir) = ytdlp_path.parent() {
+            let deno_name = if cfg!(target_os = "windows") { "deno.exe" } else { "deno" };
+            let deno = dir.join(deno_name);
+            if deno.is_file() && (cfg!(target_os = "windows") || is_executable(&deno)) {
+                cmd.args(["--js-runtimes", &format!("deno:{}", deno.display())]);
+            }
+        }
+    }
+
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
