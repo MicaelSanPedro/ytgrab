@@ -7,9 +7,9 @@
 //! The binaries come from the AppImage whenever they are bundled with it
 //! (see `commands::find_ytdlp`); this module only runs when they are missing,
 //! so a user who deleted them, or who is running the `.deb`, can recover with
-//! the same "Reinstalar dependências" button Android already uses.
+//! the same "Reinstalar dependências" button.
 //!
-//! Layout after setup (identical to Android, so both share the lookup order):
+//! Layout after setup:
 //! ```text
 //! <app_data_dir>/ytgrab-deps/
 //!   bin/
@@ -20,10 +20,28 @@
 //! ```
 
 use std::path::{Path, PathBuf};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tokio::io::AsyncWriteExt;
 
-use crate::android_setup::emit;
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SetupProgress {
+    pub stage: String,
+    pub percent: f64,
+    pub message: String,
+}
+
+/// First-run setup reports progress through the `setup-progress` event, which
+/// drives the overlay in the frontend.
+pub fn emit(app: &tauri::AppHandle, stage: &str, percent: f64, message: &str) {
+    let _ = app.emit(
+        "setup-progress",
+        SetupProgress {
+            stage: stage.to_string(),
+            percent,
+            message: message.to_string(),
+        },
+    );
+}
 
 /// Standalone Linux binary: ships its own Python, so the host distro does not
 /// need `python3` installed.
@@ -46,7 +64,7 @@ fn ffmpeg_url() -> Result<String, String> {
     ))
 }
 
-/// Same lock Android uses: webview reloads must not start two setups at once.
+/// Webview reloads must not start two setups at once.
 static SETUP_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
     std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
 
@@ -338,7 +356,7 @@ fn make_executable(_path: &Path) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 /// Make sure both binaries really run before declaring the setup finished —
-/// the same guard Android applies, so a truncated download is retried instead
+/// a truncated download is retried instead
 /// of failing later, at download time.
 async fn verify(app: &tauri::AppHandle, bin: &Path) -> Result<(), String> {
     let tmp = tmp_dir(app)?;
