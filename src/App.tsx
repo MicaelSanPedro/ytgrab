@@ -91,6 +91,7 @@ function App() {
 
   const [url, setUrl] = useState("");
   const [format, setFormat] = useState<"mp3" | "mp4">("mp3");
+  const [includeAudio, setIncludeAudio] = useState(true);
   const [quality, setQuality] = useState("320");
   const [outputDir, setOutputDir] = useState("");
   const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
@@ -345,6 +346,7 @@ function App() {
         url: url.trim(),
         format,
         quality,
+        includeAudio,
         outputDir,
         startTime: startTime.trim() || null,
         endTime: endTime.trim() || null,
@@ -1058,6 +1060,14 @@ function App() {
           🎬 MP4
         </button>
       </div>
+
+      {/* Audio option */}
+      {format === "mp4" && (
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, color: T.text, fontSize: 13, cursor: "pointer" }}>
+          <input type="checkbox" checked={includeAudio} onChange={(e) => setIncludeAudio(e.target.checked)} />
+          Com som (recomendado)
+        </label>
+      )}
 
       {/* Quality Select */}
       <div style={{ marginBottom: 12 }}>

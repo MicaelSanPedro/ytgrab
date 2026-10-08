@@ -1008,6 +1008,7 @@ pub async fn download(
     url: String,
     format: String,
     quality: String,
+    include_audio: Option<bool>,
     output_dir: String,
     start_time: Option<String>,
     end_time: Option<String>,
@@ -1026,6 +1027,7 @@ pub async fn download(
     }
 
     let is_audio = format == "mp3";
+    let include_audio = include_audio.unwrap_or(true) || is_audio;
 
     // Include the video ID so different videos with the same title never
     // overwrite each other (common with unlisted videos).
@@ -1049,10 +1051,16 @@ pub async fn download(
         ]
     } else {
         // MP4: download video capped at the chosen height.
-        let fmt = if quality == "best" {
-            "bestvideo+bestaudio/bestvideo/best".to_string()
+        let fmt = if include_audio {
+            if quality == "best" {
+                "bestvideo+bestaudio/best".to_string()
+            } else {
+                format!("bestvideo[height<={quality}]+bestaudio/best")
+            }
+        } else if quality == "best" {
+            "bestvideo/best".to_string()
         } else {
-            format!("bestvideo[height<={quality}]+bestaudio/bestvideo[height<={quality}]/bestvideo/best")
+            format!("bestvideo[height<={quality}]/bestvideo/best")
         };
         vec![
             "-f".into(),
